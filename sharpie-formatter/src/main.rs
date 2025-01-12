@@ -154,6 +154,7 @@ fn unformat_image(input: PathBuf, output: PathBuf) {
     imgbuf.save(output).expect("Failed to write output file");
 }
 
+// Generate MSB and LSB LUTs and write them to raw files
 fn gen_luts(msb_output: PathBuf, lsb_output: PathBuf) {
     // Generate a MSB lookup table for all possible pixels
     let mut msb_lut: [u8; 4096] = [0; 4096];
@@ -161,8 +162,8 @@ fn gen_luts(msb_output: PathBuf, lsb_output: PathBuf) {
     for i in 0..=0b111111 {
 	for j in 0..=0b111111 {
 	    // direct as u8 is fine, only six bits
-	    msb_lut[i+j] = two_pixels_to_msb_lsb(i as u8, j as u8).0;
-	    lsb_lut[i+j] = two_pixels_to_msb_lsb(i as u8, j as u8).1;
+	    msb_lut[(i << 6) | j] = two_pixels_to_msb_lsb(i as u8, j as u8).0;
+	    lsb_lut[(i << 6) | j] = two_pixels_to_msb_lsb(i as u8, j as u8).1;
 	}
     }
 
