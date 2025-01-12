@@ -1,0 +1,127 @@
+(kicad_sch
+	(version 20231120)
+	(generator "eeschema")
+	(generator_version "8.0")
+	(uuid "745c0971-f903-4f96-8dfe-3ac35ced6915")
+	(paper "A4")
+	(lib_symbols)
+	(sheet
+		(at 24.13 134.62)
+		(size 128.27 53.34)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "1ba699b1-cdf1-4b0b-950c-f3952e91c6f4")
+		(property "Sheetname" "MCU"
+			(at 24.13 133.9084 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "mcu.kicad_sch"
+			(at 24.13 188.5446 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "sharpie-hw"
+				(path "/745c0971-f903-4f96-8dfe-3ac35ced6915"
+					(page "2")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 127 24.13)
+		(size 73.66 62.23)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "6b239b0d-93b6-4be3-b3b6-700d60e2ca3e")
+		(property "Sheetname" "Display"
+			(at 127 23.4184 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "display.kicad_sch"
+			(at 127 86.9446 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "sharpie-hw"
+				(path "/745c0971-f903-4f96-8dfe-3ac35ced6915"
+					(page "4")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 24.13 24.13)
+		(size 76.2 62.23)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "e421bc9f-e892-42c9-b678-7dbb4581ae30")
+		(property "Sheetname" "Power"
+			(at 24.13 23.4184 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "power.kicad_sch"
+			(at 24.13 86.9446 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "sharpie-hw"
+				(path "/745c0971-f903-4f96-8dfe-3ac35ced6915"
+					(page "3")
+				)
+			)
+		)
+	)
+	(sheet_instances
+		(path "/"
+			(page "1")
+		)
+	)
+)
