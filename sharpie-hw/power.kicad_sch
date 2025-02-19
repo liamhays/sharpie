@@ -6024,7 +6024,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "100n"
+		(property "Value" "1u"
 			(at 217.17 58.4199 0)
 			(effects
 				(font
@@ -6033,7 +6033,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric"
 			(at 214.3252 60.96 0)
 			(effects
 				(font
@@ -6060,7 +6060,7 @@
 				(hide yes)
 			)
 		)
-		(property "JLCPCB Part #" "C1525"
+		(property "JLCPCB Part #" "C94122"
 			(at 213.36 57.15 0)
 			(effects
 				(font
@@ -7889,7 +7889,7 @@
 				(hide yes)
 			)
 		)
-		(property "JLCPCB Part #" "C326595"
+		(property "JLCPCB Part #" "C94122"
 			(at 111.76 147.32 0)
 			(effects
 				(font
@@ -8127,7 +8127,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "100n"
+		(property "Value" "1u"
 			(at 246.38 57.1499 0)
 			(effects
 				(font
@@ -8136,7 +8136,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric"
 			(at 243.5352 59.69 0)
 			(effects
 				(font
@@ -8163,7 +8163,7 @@
 				(hide yes)
 			)
 		)
-		(property "JLCPCB Part #" "C1525"
+		(property "JLCPCB Part #" "C94122"
 			(at 242.57 55.88 0)
 			(effects
 				(font
@@ -8318,7 +8318,7 @@
 				(hide yes)
 			)
 		)
-		(property "JLCPCB Part #" "C326595"
+		(property "JLCPCB Part #" "C94122"
 			(at 173.99 147.32 0)
 			(effects
 				(font
