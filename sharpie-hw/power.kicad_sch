@@ -1616,7 +1616,7 @@
 						)
 					)
 				)
-				(pin power_in line
+				(pin input line
 					(at 10.16 -2.54 180)
 					(length 2.54)
 					(name "C-"
@@ -3776,7 +3776,7 @@
 	)
 	(text "Display"
 		(exclude_from_sim no)
-		(at 223.774 33.782 0)
+		(at 223.774 37.592 0)
 		(effects
 			(font
 				(size 2.54 2.54)
@@ -3873,9 +3873,9 @@
 		)
 		(uuid "e28f037d-829d-4ebd-b9bc-f1286fe02350")
 	)
-	(text "Sharp says that VDD2 (5V) should rise\nat least 1ms after 3.3V, so RP2350 \ncontrols 5V EN."
+	(text "Sharp says that VDD2 (5V) \nshould rise at least 1ms \nafter 3.3V, so RP2350 \ncontrols 5V EN."
 		(exclude_from_sim no)
-		(at 207.01 113.538 0)
+		(at 197.612 103.378 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -3886,7 +3886,7 @@
 	)
 	(text "Screen breakout\nfor testing"
 		(exclude_from_sim no)
-		(at 207.264 129.794 0)
+		(at 212.344 130.302 0)
 		(effects
 			(font
 				(size 2.54 2.54)
@@ -5320,7 +5320,7 @@
 				(hide yes)
 			)
 		)
-		(property "JLCPCB Part #" "C2864326"
+		(property "JLCPCB Part #" "C2867820"
 			(at 137.16 40.64 0)
 			(effects
 				(font
@@ -5887,7 +5887,7 @@
 				(hide yes)
 			)
 		)
-		(property "JLCPCB Part #" "C2867820"
+		(property "JLCPCB Part #" "C2864326"
 			(at 138.43 82.55 0)
 			(effects
 				(font
