@@ -4775,6 +4775,15 @@
 				(hide yes)
 			)
 		)
+		(property "FT Rotation Offset" "180"
+			(at 35.56 114.3 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "2"
 			(uuid "cf2a837e-7331-4e16-81e2-31cc739fa951")
 		)
@@ -6024,7 +6033,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "1u"
+		(property "Value" "1u X7R"
 			(at 217.17 58.4199 0)
 			(effects
 				(font
@@ -7096,6 +7105,15 @@
 				(hide yes)
 			)
 		)
+		(property "JLCPCB Position Offset" "-1,0"
+			(at 33.02 49.53 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "B12"
 			(uuid "3bdf27b9-4109-498f-a3f6-15dc8e5ede23")
 		)
@@ -7889,7 +7907,7 @@
 				(hide yes)
 			)
 		)
-		(property "JLCPCB Part #" "C94122"
+		(property "JLCPCB Part #" "C326595"
 			(at 111.76 147.32 0)
 			(effects
 				(font
@@ -8127,7 +8145,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "1u"
+		(property "Value" "1u X7R"
 			(at 246.38 57.1499 0)
 			(effects
 				(font
