@@ -1606,7 +1606,7 @@
 							)
 						)
 					)
-					(number "4"
+					(number "6"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1660,7 +1660,7 @@
 							)
 						)
 					)
-					(number "6"
+					(number "4"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -3197,7 +3197,7 @@
 		)
 		(uuid "3a9b7309-294e-46bf-adf9-7058ba28d2e0")
 	)
-	(text "Following Adafruit battery\npinout: p1 = GND, p2 = VCC"
+	(text "This pinout makes the footprint\nmatch the Adafruit footprint"
 		(exclude_from_sim no)
 		(at 19.05 134.874 0)
 		(effects
@@ -3473,13 +3473,13 @@
 	)
 	(wire
 		(pts
-			(xy 22.86 114.3) (xy 22.86 119.38)
+			(xy 29.21 114.3) (xy 30.48 114.3)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
-		(uuid "035ebc6a-e669-4a9c-ad8f-5cc7279451d2")
+		(uuid "01e8d0d8-035e-4d5f-962e-60759d7a427f")
 	)
 	(wire
 		(pts
@@ -3543,6 +3543,16 @@
 	)
 	(wire
 		(pts
+			(xy 29.21 111.76) (xy 29.21 114.3)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "1eced770-cb91-46a0-89eb-bdcb3580741f")
+	)
+	(wire
+		(pts
 			(xy 66.04 36.83) (xy 66.04 41.91)
 		)
 		(stroke
@@ -3560,16 +3570,6 @@
 			(type default)
 		)
 		(uuid "214fd169-9583-44bd-801b-cf38fdaf5837")
-	)
-	(wire
-		(pts
-			(xy 29.21 116.84) (xy 29.21 111.76)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "25b3e912-0019-46bf-8fb3-47137db505f5")
 	)
 	(wire
 		(pts
@@ -3660,16 +3660,6 @@
 			(type default)
 		)
 		(uuid "51947bc4-13c3-4661-aa45-4e75682d0046")
-	)
-	(wire
-		(pts
-			(xy 30.48 114.3) (xy 22.86 114.3)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "523593c3-82b4-490d-8bea-11e89bb94df8")
 	)
 	(wire
 		(pts
@@ -3803,6 +3793,16 @@
 	)
 	(wire
 		(pts
+			(xy 22.86 116.84) (xy 22.86 119.38)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "ace99def-8439-4b8d-aecd-1842323d6da2")
+	)
+	(wire
+		(pts
 			(xy 137.16 91.44) (xy 138.43 91.44)
 		)
 		(stroke
@@ -3863,16 +3863,6 @@
 	)
 	(wire
 		(pts
-			(xy 30.48 116.84) (xy 29.21 116.84)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "b831a9d3-a2e1-4a4d-b51c-6dbe4b3b04fd")
-	)
-	(wire
-		(pts
 			(xy 116.84 46.99) (xy 116.84 50.8)
 		)
 		(stroke
@@ -3890,6 +3880,16 @@
 			(type default)
 		)
 		(uuid "bece3b66-d95d-4c4f-9a8b-a6bd9d516960")
+	)
+	(wire
+		(pts
+			(xy 30.48 116.84) (xy 22.86 116.84)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "c4fd6fa0-2f77-4bbb-88cf-e64127928766")
 	)
 	(wire
 		(pts

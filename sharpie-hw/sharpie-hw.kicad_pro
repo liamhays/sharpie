@@ -540,7 +540,7 @@
       "gencad": "",
       "idf": "",
       "netlist": "",
-      "plot": "gerbers/",
+      "plot": "sharpie-gerbers",
       "pos_files": "",
       "specctra_dsn": "",
       "step": "",
