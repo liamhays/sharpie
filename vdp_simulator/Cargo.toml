@@ -1,0 +1,12 @@
+[package]
+name = "vdp_simulator"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pixels = "0.15.0"
+winit = "0.29"
+winit_input_helper = "0.15"
+env_logger = "0.10"
+error-iter = "0.4"
+log = "0.4"
