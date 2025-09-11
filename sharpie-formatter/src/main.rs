@@ -18,6 +18,11 @@ enum Commands {
 	msb_output: PathBuf,
 	lsb_output: PathBuf,
     },
+    UnformatRaw {
+	input: PathBuf,
+	output: PathBuf,
+    }
+	
 }
 
 #[derive(Parser, Debug)]
@@ -162,8 +167,9 @@ fn gen_luts(msb_output: PathBuf, lsb_output: PathBuf) {
     for i in 0..=0b111111 {
 	for j in 0..=0b111111 {
 	    // direct as u8 is fine, only six bits
-	    msb_lut[(i << 6) | j] = two_pixels_to_msb_lsb(i as u8, j as u8).0;
-	    lsb_lut[(i << 6) | j] = two_pixels_to_msb_lsb(i as u8, j as u8).1;
+	    let v = two_pixels_to_msb_lsb(i as u8, j as u8);
+	    msb_lut[(i << 6) | j] = v.0;
+	    lsb_lut[(i << 6) | j] = v.1;
 	}
     }
 
@@ -171,6 +177,52 @@ fn gen_luts(msb_output: PathBuf, lsb_output: PathBuf) {
     fs::write(lsb_output, lsb_lut).expect("Failed to write LSB LUT");
 }
 
+fn unformat_image_raw(input: PathBuf, output: PathBuf) {
+    // unformat an image, but save it as raw bytes, not an image format
+    let formatted = fs::read(input).expect("Failed to read input file");
+
+    if formatted.len() != 320*240 {
+	panic!("Formatted data read from file is not {} bytes!", 320*240);
+    }
+
+    let mut imgbuf: [[u8; 240]; 320] = [[0u8; 240]; 320];
+    
+    for row in 0..320 {
+	let mut formatted_col = 0;
+	for col in (0..240).step_by(2) {
+	    let msb = formatted[row*240 + formatted_col];
+	    let lsb = formatted[row*240 + (formatted_col+120)];
+	    
+	    let p0_red = (msb & 0b10) | ((lsb & 0b10) >> 1);
+	    let p0_green = ((msb & 0b1000) >> 2) | ((lsb & 0b1000) >> 3);
+	    let p0_blue = ((msb & 0b100000) >> 4) | ((lsb & 0b100000) >> 5);
+
+	    let p1_red = (msb & 0b1) << 1 | (lsb & 0b1);
+	    let p1_green = (((msb & 0b100) >> 2) << 1) | ((lsb & 0b100) >> 2);
+	    let p1_blue = ((msb & 0b10000) >> 3) | ((lsb & 0b10000) >> 4);
+
+	    let p0 = p0_red | p0_green | p0_blue;
+	    let p1 = p1_red | p1_green | p1_blue;
+	    print!("{:x}, {:x}, ", p0, p1);
+	    imgbuf[row][col] = p0;
+	    imgbuf[row][col+1] = p1;
+	    
+	    formatted_col += 1;
+	}
+	println!();
+    }
+
+    // reformat 2d to a 1d array
+    let mut imgbuf_1d: [u8; 76800] = [0u8; 76800];
+    let mut i = 0;
+    for row in 0..320 {
+	for col in 0..240 {
+	    imgbuf_1d[i] = imgbuf[row][col];
+	    i += 1;
+	}
+    }
+    fs::write(output, imgbuf_1d).expect("failed to write output!");
+}
 
 fn main() {
     let args = Args::parse();
@@ -183,6 +235,9 @@ fn main() {
 	},
 	Commands::GenLuts { msb_output, lsb_output } => {
 	    gen_luts(msb_output, lsb_output);
+	},
+	Commands::UnformatRaw { input, output } => {
+	    unformat_image_raw(input, output);
 	},
     };
     
