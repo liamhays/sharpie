@@ -1,0 +1,30 @@
+.pio_version 0
+
+.program sharpie_va_vb_vcom
+.side_set 2
+; simple program: toggle VCOM/VB (same signal) and VA (180 degrees out
+; of phase, starting earlier) at 60 Hz
+;
+; remember: side-set LSb maps to the value passed to
+; pio_sm_set_sideset_pins()
+
+.wrap_target
+
+nop        side 0b01
+nop        side 0b10
+.wrap
+
+% c-sdk {
+#include "hardware/gpio.h"
+
+static inline void sharpie_va_vb_vcom_pio_init(PIO pio, uint sm, uint offset, uint va_pin) {
+  pio_gpio_init(pio, va_pin);
+  pio_gpio_init(pio, va_pin + 1);
+
+  pio_sm_set_consecutive_pindirs(pio, sm, va_pin, 2, true); // both pins output
+
+  pio_sm_config c = sharpie_va_vb_vcom_program_get_default_config(offset);
+  
+  sm_config_set_sideset_pins(&c, va_pin);
+  sm_config_set_clkdiv(&c, 2000); // resulting signal is 75kHz exactly
+  
