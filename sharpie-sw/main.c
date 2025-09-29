@@ -40,7 +40,7 @@ void error_handler() {
   }
 }
 
-PIO pio = pio0;
+//PIO pio = pio0;
 uint vertical_sm = 0;
 uint gen_sm = 1;
 uint horiz_data_sm = 2;
@@ -49,66 +49,62 @@ uint vertical_offset = 0;
 uint gen_offset = 0;
 uint horiz_data_offset = 0;
 
-void init_sharpie_pios() {
-  for (uint i = 0; i < 2; i++) {
-    PIO pio = PIO_INSTANCE(i);
-    vertical_offset = pio_add_program(pio, &sharpie_vertical_program);
-    if (vertical_offset < 0) {
-      printf("failed to add sharpie_vertical_program on PIO %u\n", i);
-      error_handler();
-    }
-    
-    // init GEN state machine
-    gen_offset = pio_add_program(pio, &sharpie_gen_program);
-    if (gen_offset < 0) {
-      printf("failed to add sharpie_gen_program on PIO %u\n", i);
-      error_handler();
-    }
-    
-    
-    // init horiz/data state machine
-    horiz_data_offset = pio_add_program(pio, &sharpie_horiz_data_program);
-    if (horiz_data_offset < 0) {
-      printf("failed to add sharpie_horiz_data_program on PIO %u\n", i);
-      error_handler();
-    }
+void add_pio_programs(PIO pio) {
+  vertical_offset = pio_add_program(pio, &sharpie_vertical_program);
+  if (vertical_offset < 0) {
+    printf("failed to add sharpie_vertical_program\n");
+    error_handler();
   }
+  
+  // init GEN state machine
+  gen_offset = pio_add_program(pio, &sharpie_gen_program);
+  if (gen_offset < 0) {
+    printf("failed to add sharpie_gen_program\n");
+    error_handler();
+  }
+  
+  
+  // init horiz/data state machine
+  horiz_data_offset = pio_add_program(pio, &sharpie_horiz_data_program);
+  if (horiz_data_offset < 0) {
+    printf("failed to add sharpie_horiz_data_program\n");
+    error_handler();
+  }
+
 }
 
-void restart_state_machines() {
+void restart_state_machines(PIO pio) {
   // init all three state machines
-  for (uint i = 0; i < 2; i++) {
 
-    PIO pio = PIO_INSTANCE(i);
-    // INTB on 0, GSP on 1, GCK on 2
-    sharpie_vertical_pio_init(pio, vertical_sm, vertical_offset, 0);
-    // GEN on pin 3, start state machine
-    sharpie_gen_pio_init(pio, gen_sm, gen_offset, 3);
-    // BSP on pin 4, BCK on pin 5, data from pin 6 to 11 inclusive
-    sharpie_horiz_data_pio_init(pio, horiz_data_sm, horiz_data_offset, 4, 6);
-    
-    // charge the vertical state machine, it's waiting for irq 0
-    // the number you put in its FIFO is the number of times the loop
-    // will run, minus 1
-    pio_sm_put(pio, vertical_sm, 321); // run 321 times for 648 h/l total
-    
-    // GEN: run 5 times (counter value + 1)
-    pio_sm_put(pio, gen_sm, 639); // this should be 639 for 640 high pulses
-    pio_sm_exec(pio, gen_sm, pio_encode_pull(false, false)); // just a basic pull
-    pio_sm_exec(pio, gen_sm, pio_encode_mov(pio_x, pio_osr)); // mov x, osr
-    // GEN counter is now charged
-    
-    // horiz-data: charge X, make a backup in ISR (unused by any other part of the code)
-    pio_sm_put(pio, horiz_data_sm, 59); // we'll get a total of 2(x+1)+4 h/l so this should be 59 => 2(59+1)+4 = 124
-    pio_sm_exec(pio, horiz_data_sm, pio_encode_pull(false, false));  // pull
-    pio_sm_exec(pio, horiz_data_sm, pio_encode_out(pio_isr, 32)); // out isr, 32 (make backup of counter value and clear OSR for autopull)
-    pio_sm_exec(pio, horiz_data_sm, pio_encode_mov(pio_x, pio_isr)); // mov x, isr (load X with counter)
-    // charge Y for total loop counter
-    pio_sm_put(pio, horiz_data_sm, 640); // should be 640 for 641 loops (see 6-3-2, the last loop has data all zeros, which is why we have a chained DMA channel below)
-    pio_sm_exec(pio, horiz_data_sm, pio_encode_pull(false, false)); // pull
-    pio_sm_exec(pio, horiz_data_sm, pio_encode_out(pio_y, 32)); // out y, 32 (also clears OSR)
-
-  }
+  // INTB on 0, GSP on 1, GCK on 2
+  sharpie_vertical_pio_init(pio, vertical_sm, vertical_offset, 0);
+  // GEN on pin 3, start state machine
+  sharpie_gen_pio_init(pio, gen_sm, gen_offset, 3);
+  // BSP on pin 4, BCK on pin 5, data from pin 6 to 11 inclusive
+  sharpie_horiz_data_pio_init(pio, horiz_data_sm, horiz_data_offset, 4, 6);
+  
+  // charge the vertical state machine, it's waiting for irq 0
+  // the number you put in its FIFO is the number of times the loop
+  // will run, minus 1
+  pio_sm_put(pio, vertical_sm, 321); // run 321 times for 648 h/l total
+  
+  // GEN: run 5 times (counter value + 1)
+  pio_sm_put(pio, gen_sm, 639); // this should be 639 for 640 high pulses
+  pio_sm_exec(pio, gen_sm, pio_encode_pull(false, false)); // just a basic pull
+  pio_sm_exec(pio, gen_sm, pio_encode_mov(pio_x, pio_osr)); // mov x, osr
+  // GEN counter is now charged
+  
+  // horiz-data: charge X, make a backup in ISR (unused by any other part of the code)
+  pio_sm_put(pio, horiz_data_sm, 59); // we'll get a total of 2(x+1)+4 h/l so this should be 59 => 2(59+1)+4 = 124
+  pio_sm_exec(pio, horiz_data_sm, pio_encode_pull(false, false));  // pull
+  pio_sm_exec(pio, horiz_data_sm, pio_encode_out(pio_isr, 32)); // out isr, 32 (make backup of counter value and clear OSR for autopull)
+  pio_sm_exec(pio, horiz_data_sm, pio_encode_mov(pio_x, pio_isr)); // mov x, isr (load X with counter)
+  // charge Y for total loop counter
+  pio_sm_put(pio, horiz_data_sm, 640); // should be 640 for 641 loops (see 6-3-2, the last loop has data all zeros, which is why we have a chained DMA channel below)
+  pio_sm_exec(pio, horiz_data_sm, pio_encode_pull(false, false)); // pull
+  pio_sm_exec(pio, horiz_data_sm, pio_encode_out(pio_y, 32)); // out y, 32 (also clears OSR)
+  
+}
 
     /*pio_sm_restart(pio, vertical_sm);
   pio_sm_clear_fifos(pio, vertical_sm);
@@ -117,7 +113,7 @@ void restart_state_machines() {
   pio_sm_restart(pio, horiz_data_sm);
   pio_sm_clear_fifos(pio, horiz_data_sm);*/
 
-}
+
 
 
 void pwm_wrap_interrupt() {
@@ -151,14 +147,19 @@ void pwm_wrap_interrupt() {
 //   hold for 60 seconds, then do the shut-off sequence. This will get us as
 //   close as possible to the prescribed usage pattern.
 
-
-// The problem with the messed up waveforms seems to be related to
-// stuck states in either the PIO or DMA. We should be able to work
-// around this by using all three PIOs. We're also going to claim
-// separate DMA channels for each transfer.
+// The problem was caused by the zeros DMA stream being improperly
+// configured to send 2x as many bytes as it is supposed to. The
+// waveforms show that the horizontal control pulses continue for one
+// GCK h/l after an entire frame, and one GCK h/l is one collection of
+// MSB or LSB bytes, or 120 bytes. We were sending 240 bytes.
 void main() {
   // set up the system: initialize pins and PIO
   stdio_init_all();
+
+  /*while (!stdio_usb_connected()) {
+    sleep_ms(50);
+    }*/
+  
 
   // red framebuffer gets white, actually, because we are more confident
   // in what white looks like than in what anything else looks like
@@ -185,12 +186,12 @@ void main() {
   // clock divider values configured in the PIO sources are tuned
   // for that speed
 
-  init_sharpie_pios();
-  
+  add_pio_programs(pio0);
+  restart_state_machines(pio0);
   // all state machines have to be running in lockstep for
   // synchronization via interrupts to work
   // this also charges all appropriate registers
-  restart_state_machines();
+  //restart_state_machines();
 
   
   // TODO: four transfers or less causes the last out data on the pins
@@ -230,7 +231,7 @@ void main() {
   channel_config_set_chain_to(&c, dma_channel_zero); // chain to zero channel to start zero channel when this finishes
   dma_channel_configure(dma_channel, &c,
 			&pio0->txf[horiz_data_sm], // destination (TX FIFO of SM 2)
-			&global_32bit_max,//zero,
+			&global_32bit_zero,
 			19200, // transfer size = 320*240/4 = 19200
 			true); // start now
   
@@ -244,14 +245,14 @@ void main() {
   dma_channel_configure(dma_channel_zero, &c_zero,
 			&pio0->txf[horiz_data_sm],
 			&global_32bit_zero,
-			240/4, // 240 bytes but 4-byte transfers
+			120/4, // 120 bytes 
 			false); // wait for chain start
 
   // restart all state machine clocks
   pio_clkdiv_restart_sm_mask(pio0, 0b111); // restart state machines
-  pio_clkdiv_restart_sm_mask(pio1, 0b111);
-  pio_clkdiv_restart_sm_mask(pio2, 0b111);
-  
+
+
+
   /*******************************************/
   // The system is now ready to actually do screen stuff.
   /////////////////////////////////////////////
@@ -278,6 +279,8 @@ void main() {
   // min 163.68 μs between fall and next rise)
   sleep_ms(60);
   printf("transmitted first black screen\n");
+  printf("black screen dma busy: %u\n", dma_channel_is_busy(dma_channel));
+  printf("final zeros dma busy: %u\n", dma_channel_is_busy(dma_channel_zero));
   // wait mandated 30μs (this is already taken care of but the difference shouldn't matter)
   sleep_us(30);
 
@@ -315,7 +318,9 @@ void main() {
 
   
   // send red screen
-
+  restart_state_machines(pio0);
+  pio_clkdiv_restart_sm_mask(pio0, 0b111);
+  
   int dma_channel_red = dma_claim_unused_channel(true); // true -> required
   if (dma_channel_red < 0) {
     printf("failed to claim red dma channel\n");
@@ -332,10 +337,10 @@ void main() {
   channel_config_set_read_increment(&red_c, true); // increment reads
   channel_config_set_write_increment(&red_c, false); // no increment writes (into the FIFO)
   channel_config_set_transfer_data_size(&red_c, DMA_SIZE_32); // four byte transfers (one byte doesn't work)
-  channel_config_set_dreq(&red_c, pio_get_dreq(pio1, horiz_data_sm, true)); // true for sending data to SM
+  channel_config_set_dreq(&red_c, pio_get_dreq(pio0, horiz_data_sm, true)); // true for sending data to SM
   channel_config_set_chain_to(&red_c, dma_channel_red_zero); // chain to zero channel to start zero channel when this finishes
   dma_channel_configure(dma_channel_red, &red_c,
-			&pio1->txf[horiz_data_sm], // destination (TX FIFO of SM 2)
+			&pio0->txf[horiz_data_sm], // destination (TX FIFO of SM 2)
 			red_framebuffer_32, // source 
 			19200, // transfer size = 320*240/4 = 19200
 			true); // start now
@@ -346,32 +351,37 @@ void main() {
   channel_config_set_read_increment(&red_c_zero, false); // just send zeros
   channel_config_set_write_increment(&red_c_zero, false); // write into FIFO
   channel_config_set_transfer_data_size(&red_c_zero, DMA_SIZE_32);
-  channel_config_set_dreq(&red_c_zero, pio_get_dreq(pio1, horiz_data_sm, true));
+  channel_config_set_dreq(&red_c_zero, pio_get_dreq(pio0, horiz_data_sm, true));
   dma_channel_configure(dma_channel_red_zero, &red_c_zero,
-			&pio1->txf[horiz_data_sm],
+			&pio0->txf[horiz_data_sm],
 			&global_32bit_zero,
-			240/4, // 240 bytes but 4-byte transfers
+			120/4,
 			false); // wait for chain start
 
 
   
   // transmit red framebuffer
-  pio1->irq_force = 0b1;
+  pio0->irq_force = 0b1;
 
   printf("send red framebuffer\n");
   // wait for the frame to transmit
   sleep_ms(60);
+  printf("framebuffer dma busy: %u\n", dma_channel_is_busy(dma_channel_red));
+  printf("final zeros dma busy: %u\n", dma_channel_is_busy(dma_channel_red_zero));
 
   printf("waiting...\n");
   // wait 60 seconds to show off what got transmitted
   //gpio_put(led_pin, 1);
-  sleep_ms(1000);//60000);
+  sleep_ms(5000);//60000);
 
   // reload state machines to run again
   //restart_state_machines();
   
   // configure final black DMA
 
+  restart_state_machines(pio0);
+  pio_clkdiv_restart_sm_mask(pio0, 0b111);
+  
   int dma_channel_final_black = dma_claim_unused_channel(true); // true -> required
   if (dma_channel_final_black < 0) {
     printf("failed to claim final black dma channel\n");
@@ -385,13 +395,13 @@ void main() {
   }
   
   dma_channel_config final_black_c = dma_channel_get_default_config(dma_channel_final_black);
-  channel_config_set_read_increment(&final_black_c, false); // increment reads
+  channel_config_set_read_increment(&final_black_c, false); 
   channel_config_set_write_increment(&final_black_c, false); // no increment writes (into the FIFO)
   channel_config_set_transfer_data_size(&final_black_c, DMA_SIZE_32); // four byte transfers (one byte doesn't work)
-  channel_config_set_dreq(&final_black_c, pio_get_dreq(pio2, horiz_data_sm, true)); // true for sending data to SM
+  channel_config_set_dreq(&final_black_c, pio_get_dreq(pio0, horiz_data_sm, true)); // true for sending data to SM
   channel_config_set_chain_to(&final_black_c, dma_channel_final_black_zero); // chain to zero channel to start zero channel when this finishes
   dma_channel_configure(dma_channel_final_black, &final_black_c,
-			&pio2->txf[horiz_data_sm], // destination (TX FIFO of SM 2)
+			&pio0->txf[horiz_data_sm], // destination (TX FIFO of SM 2)
 		        &global_32bit_zero,//black_framebuffer, // source 
 			19200, // transfer size = 320*240/4 = 19200
 			true); // start now
@@ -402,23 +412,25 @@ void main() {
   channel_config_set_read_increment(&final_black_c_zero, false); // just send zeros
   channel_config_set_write_increment(&final_black_c_zero, false); // write into FIFO
   channel_config_set_transfer_data_size(&final_black_c_zero, DMA_SIZE_32);
-  channel_config_set_dreq(&final_black_c_zero, pio_get_dreq(pio2, horiz_data_sm, true));
+  channel_config_set_dreq(&final_black_c_zero, pio_get_dreq(pio0, horiz_data_sm, true));
   dma_channel_configure(dma_channel_final_black_zero, &final_black_c_zero,
-			&pio2->txf[horiz_data_sm],
+			&pio0->txf[horiz_data_sm],
 			&global_32bit_zero,
-			240/4, // 240 bytes but 4-byte transfers
+			120/4, // 240 bytes but 4-byte transfers
 			false); // wait for chain start
 
   // and run again
 
 
   sleep_ms(4);
-  pio2->irq_force = 0b1;
+  pio0->irq_force = 0b1;
   
   printf("sending black screen\n");
   // wait for frame to transmit
   sleep_ms(60);
-  
+  printf("final black dma busy: %u\n", dma_channel_is_busy(dma_channel_final_black));
+  printf("final black zeros dma busy: %u\n", dma_channel_is_busy(dma_channel_final_black_zero));
+
   // stop VCOM, VB, VA
   pwm_set_enabled(pwm_slice, false);
   // the datasheet seems to suggest that when an image is not being
