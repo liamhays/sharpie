@@ -188,16 +188,7 @@ void main() {
 
   add_pio_programs(pio0);
   restart_state_machines(pio0);
-  // all state machines have to be running in lockstep for
-  // synchronization via interrupts to work
-  // this also charges all appropriate registers
-  //restart_state_machines();
 
-  
-  // TODO: four transfers or less causes the last out data on the pins
-  // to be weirdly skewed, something with just R1 and R2. Should we
-  // preload the whole FIFO before starting?
-  
   
   // configure DMA AFTER we charge the loop registers
   //
@@ -279,8 +270,7 @@ void main() {
   // min 163.68 μs between fall and next rise)
   sleep_ms(60);
   printf("transmitted first black screen\n");
-  printf("black screen dma busy: %u\n", dma_channel_is_busy(dma_channel));
-  printf("final zeros dma busy: %u\n", dma_channel_is_busy(dma_channel_zero));
+
   // wait mandated 30μs (this is already taken care of but the difference shouldn't matter)
   sleep_us(30);
 
@@ -366,17 +356,11 @@ void main() {
   printf("send red framebuffer\n");
   // wait for the frame to transmit
   sleep_ms(60);
-  printf("framebuffer dma busy: %u\n", dma_channel_is_busy(dma_channel_red));
-  printf("final zeros dma busy: %u\n", dma_channel_is_busy(dma_channel_red_zero));
 
   printf("waiting...\n");
   // wait 60 seconds to show off what got transmitted
-  //gpio_put(led_pin, 1);
   sleep_ms(5000);//60000);
 
-  // reload state machines to run again
-  //restart_state_machines();
-  
   // configure final black DMA
 
   restart_state_machines(pio0);
@@ -428,8 +412,6 @@ void main() {
   printf("sending black screen\n");
   // wait for frame to transmit
   sleep_ms(60);
-  printf("final black dma busy: %u\n", dma_channel_is_busy(dma_channel_final_black));
-  printf("final black zeros dma busy: %u\n", dma_channel_is_busy(dma_channel_final_black_zero));
 
   // stop VCOM, VB, VA
   pwm_set_enabled(pwm_slice, false);
