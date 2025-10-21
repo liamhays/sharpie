@@ -10,7 +10,8 @@
 #include "sharpie-vertical.pio.h"
 #include "sharpie-gen.pio.h"
 #include "sharpie-horiz-data.pio.h"
-
+#include "floyd_steinberg_gang.h"
+#include "macaw.h"
 
 const int led_pin = 14;
 const int five_volt_en = 16;
@@ -23,8 +24,8 @@ uint pwm_slice;
 uint32_t global_32bit_zero = 0;
 
 uint8_t red_framebuffer[320][240];
+
 uint8_t* red_framebuffer_1d = (uint8_t*)red_framebuffer;
-uint32_t* red_framebuffer_32 = (uint32_t*)red_framebuffer;
 
 uint8_t black_framebuffer[320][240];
 uint8_t* black_framebuffer_1d = (uint8_t*)black_framebuffer;
@@ -163,7 +164,18 @@ void main() {
 
   // red framebuffer gets white, actually, because we are more confident
   // in what white looks like than in what anything else looks like
-  memset(red_framebuffer_1d, 0b111111, 320*240);
+  memset(red_framebuffer_1d, 0b110000, 320*240);
+
+  // stuck bit tests
+  /*for (uint32_t i = 0; i < 320; i++) {
+    // set all pixels' red LSb to 1
+    for (uint32_t j = 0; j < 120; j++) {
+      red_framebuffer[i][j] = 0b000000;
+    }
+    for (uint32_t j = 120; j < 240; j++) {
+      red_framebuffer[i][j] = 0b000001;
+    }
+    }*/
   memset(black_framebuffer_1d, 0, 320*240);
   
   gpio_init(five_volt_en);
@@ -291,13 +303,16 @@ void main() {
   // 150MHz sysclk -> [divider: /200] -> 750kHz PWM clk ->
   // 6250-cycle wrapper -> 60Hz signal
   pwm_slice = pwm_gpio_to_slice_num(12); // channel 6A
-  
+
+  // I need to check the VCOM frequency with a scope, but as far as I
+  // can tell it doesn't change the appearence of the image.
   pwm_config cfg = pwm_get_default_config();
   pwm_config_set_clkdiv_mode(&cfg, PWM_DIV_FREE_RUNNING);
   pwm_config_set_clkdiv(&cfg, 200);
-  pwm_config_set_wrap(&cfg, 6250);
+  int wrap = 6250;
+  pwm_config_set_wrap(&cfg, wrap);
   pwm_set_irq_enabled(pwm_slice, true); // interrupt generated on wrap
-  pwm_set_chan_level(pwm_slice, PWM_CHAN_A, 6250-1); // immediately fire the irq
+  pwm_set_chan_level(pwm_slice, PWM_CHAN_A, wrap-1); // immediately fire the irq
   pwm_init(pwm_slice, &cfg, true); // start now
 
   printf("VA/VB/VCOM running\n");
@@ -331,7 +346,7 @@ void main() {
   channel_config_set_chain_to(&red_c, dma_channel_red_zero); // chain to zero channel to start zero channel when this finishes
   dma_channel_configure(dma_channel_red, &red_c,
 			&pio0->txf[horiz_data_sm], // destination (TX FIFO of SM 2)
-			red_framebuffer_32, // source 
+		        macaw_dithered_raw,//red_framebuffer_1d, // source 
 			19200, // transfer size = 320*240/4 = 19200
 			true); // start now
 
@@ -358,8 +373,8 @@ void main() {
   sleep_ms(60);
 
   printf("waiting...\n");
-  // wait 60 seconds to show off what got transmitted
-  sleep_ms(5000);//60000);
+  // wait 20 seconds to show off what got transmitted
+  sleep_ms(60000);
 
   // configure final black DMA
 

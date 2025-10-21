@@ -31,8 +31,8 @@ struct Args {
     command: Commands,
 }
 
-/// Convert two pixels in 0bBBGGRR format to their respective MSB and
-/// LSB bytes.
+/// Convert two pixels in 0bBBGGRR format to their respective MSb and
+/// LSb bytes.
 fn two_pixels_to_msb_lsb(p1: u8, p2: u8) -> (u8, u8) {
     // apply a linear mapping from 24-bit color to 6-bit color
     // (this is not actually correct, the display has skew
@@ -44,7 +44,7 @@ fn two_pixels_to_msb_lsb(p1: u8, p2: u8) -> (u8, u8) {
     let p2green = (p2 & 0b1100) >> 2;
     let p2blue = (p2 & 0b110000) >> 4;
 
-    // get the MSBs of both pixels, each of these values is 0
+    // get the MSbs of both pixels, each of these values is 0
     // or 1
     let p1red_m = p1red >> 1;
     let p1green_m = p1green >> 1;
@@ -53,8 +53,11 @@ fn two_pixels_to_msb_lsb(p1: u8, p2: u8) -> (u8, u8) {
     let p2green_m = p2green >> 1;
     let p2blue_m = p2blue >> 1;
 
-    let msb = (p1blue_m << 5) | (p1green_m << 3) | (p1red_m << 1)
-	| (p2blue_m << 4) | (p2green_m << 2) | (p2red_m);
+    // assemble the MSb byte: the second pixel goes in the higher
+    // position while the first goes in the lower (this was wrong
+    // before)
+    let msb = (p2blue_m << 5) | (p2green_m << 3) | (p2red_m << 1)
+	| (p1blue_m << 4) | (p1green_m << 2) | (p1red_m);
     
     // now find LSBs from both pixels
     let p1red_l = p1red & 1;
@@ -65,8 +68,8 @@ fn two_pixels_to_msb_lsb(p1: u8, p2: u8) -> (u8, u8) {
     let p2blue_l = p2blue & 1;
     
     // and write to formatted array as LSBs in 0bB1B2G1G2R1R2
-    let lsb = (p1blue_l << 5) | (p1green_l << 3) | (p1red_l << 1)
-	| (p2blue_l << 4) | (p2green_l << 2) | (p2red_l);
+    let lsb = (p2blue_l << 5) | (p2green_l << 3) | (p2red_l << 1)
+	| (p1blue_l << 4) | (p1green_l << 2) | (p1red_l);
 
     (msb, lsb)
 }
@@ -138,13 +141,13 @@ fn unformat_image(input: PathBuf, output: PathBuf) {
 	for col in (0..240).step_by(2) {
 	    let msb = formatted[row*240 + formatted_col];
 	    let lsb = formatted[row*240 + (formatted_col+120)];
-	    let p0_red = (msb & 0b10) | ((lsb & 0b10) >> 1);
-	    let p0_green = ((msb & 0b1000) >> 2) | ((lsb & 0b1000) >> 3);
-	    let p0_blue = ((msb & 0b100000) >> 4) | ((lsb & 0b100000) >> 5);
+	    let p1_red = (msb & 0b10) | ((lsb & 0b10) >> 1);
+	    let p1_green = ((msb & 0b1000) >> 2) | ((lsb & 0b1000) >> 3);
+	    let p1_blue = ((msb & 0b100000) >> 4) | ((lsb & 0b100000) >> 5);
 
-	    let p1_red = (msb & 0b1) << 1 | (lsb & 0b1);
-	    let p1_green = (((msb & 0b100) >> 2) << 1) | ((lsb & 0b100) >> 2);
-	    let p1_blue = ((msb & 0b10000) >> 3) | ((lsb & 0b10000) >> 4);
+	    let p0_red = (msb & 0b1) << 1 | (lsb & 0b1);
+	    let p0_green = (((msb & 0b100) >> 2) << 1) | ((lsb & 0b100) >> 2);
+	    let p0_blue = ((msb & 0b10000) >> 3) | ((lsb & 0b10000) >> 4);
 	    
 	    let p0: [u8; 3] = [p0_red << 6, p0_green << 6, p0_blue << 6];
 	    let p1: [u8; 3] = [p1_red << 6, p1_green << 6, p1_blue << 6];
