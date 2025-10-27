@@ -12,6 +12,7 @@
 #include "sharpie-horiz-data.pio.h"
 #include "floyd_steinberg_gang.h"
 #include "macaw.h"
+#include "finch.h"
 
 const int led_pin = 14;
 const int five_volt_en = 16;
@@ -374,7 +375,8 @@ void main() {
 
   printf("waiting...\n");
   // wait 20 seconds to show off what got transmitted
-  sleep_ms(60000);
+  //sleep_ms(60000);
+  while (true);
 
   // configure final black DMA
 

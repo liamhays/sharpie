@@ -21,8 +21,12 @@ enum Commands {
     UnformatRaw {
 	input: PathBuf,
 	output: PathBuf,
+    },
+    Dither {
+	input: PathBuf,
     }
-	
+
+    
 }
 
 #[derive(Parser, Debug)]
@@ -35,8 +39,6 @@ struct Args {
 /// LSb bytes.
 fn two_pixels_to_msb_lsb(p1: u8, p2: u8) -> (u8, u8) {
     // apply a linear mapping from 24-bit color to 6-bit color
-    // (this is not actually correct, the display has skew
-    // toward the MSB due to the way subpixels are arranged)
     let p1red = p1 & 0b11;
     let p1green = (p1 & 0b1100) >> 2;
     let p1blue = (p1 & 0b110000) >> 4;
@@ -162,6 +164,116 @@ fn unformat_image(input: PathBuf, output: PathBuf) {
     imgbuf.save(output).expect("Failed to write output file");
 }
 
+/// You can left-shift a 2-bit color into an 8-bit color, but you
+/// lose the total dynamic range, because 0b11000000 is not full
+/// brightness. This function maps the 4 possible values of a
+/// 2-bit color into correctly ranged 8-bit colors.
+///
+/// We can tell that doing it with just a shift is wrong because the
+/// dithered result looks mega weird.
+fn color_2bit_to_8bit(color_2bit: u8) -> u8 {
+    match color_2bit {
+	0b00 => 0u8,
+	0b01 => 85u8,
+	0b10 => 170u8,
+	0b11 => 255u8,
+	_ => 255u8,
+    }
+
+}
+
+/// Returns the 2bpp equivalent of an Rgb pixel and the correctly
+/// scaled Rgb pixel that represents that 2bpp pixel.
+fn rgb8_to_2bpp_pixel(rgb8: Rgb<u8>) -> Rgb<u8> {
+    let red_2bit = rgb8[0] >> 6;
+    let green_2bit = rgb8[1] >> 6;
+    let blue_2bit = rgb8[2] >> 6;
+
+    Rgb([color_2bit_to_8bit(red_2bit),
+	 color_2bit_to_8bit(green_2bit),
+	 color_2bit_to_8bit(blue_2bit)])
+
+}
+
+fn rgb8_difference(rgb8_a: Rgb<u8>, rgb8_b: Rgb<u8>) -> [i16; 3] {
+    let a = rgb8_a.channels();
+    let b = rgb8_b.channels();
+
+    // don't reverse these, it clamps everything, or something
+    [i16::from(a[0]) - i16::from(b[0]),
+     i16::from(a[1]) - i16::from(b[1]),
+     i16::from(a[2]) - i16::from(b[2])]
+
+}
+
+fn rgb8_quant_error(rgb8: Rgb<u8>, difference: [i16; 3], quant_num: i16) -> Rgb<u8> {
+    let mut chan: [u8; 3] = [0u8; 3];
+    chan.clone_from_slice(rgb8.channels());
+
+    // we have to clamp overflows to 255, otherwise channels that
+    // saturate will underflow, causing (for example) some bright
+    // white pixels in the original image to appear as a full blue
+    // pixel in the dithered output. the max difference is +/- 63 and
+    // quant_num is always less than 16, so we can safely cast to i8
+    // without losing anything.
+    chan[0] = chan[0].saturating_add_signed((difference[0] * quant_num/16) as i8);
+    chan[1] = chan[1].saturating_add_signed((difference[1] * quant_num/16) as i8);
+    chan[2] = chan[2].saturating_add_signed((difference[2] * quant_num/16) as i8);
+    
+    Rgb([chan[0], chan[1], chan[2]])
+}
+
+// I'm inclined to implement back-and-forth scanning but the result
+// image looks good as is.
+fn floyd_steinberg_dither(input_file: PathBuf) {
+    let mut input = ImageReader::open(input_file).expect("Failed to read image")
+	.decode().expect("Failed to decode image")
+	.into_rgb8();
+    
+    for y in 0..input.height() {
+	for x in 0..input.width() {
+	    let oldpixel = input.get_pixel(x, y);
+	    // convert color to 6bpp color
+
+	    let newpixel_8bpp = rgb8_to_2bpp_pixel(*oldpixel);
+
+	    let quant_error: [i16; 3] = rgb8_difference(*oldpixel, newpixel_8bpp);
+	    
+	    input.put_pixel(x, y, newpixel_8bpp);
+
+	    // if we're in a position that would write to pixels outside the image,
+	    // just don't write them.
+	    if x + 1 < input.width() {
+		input.put_pixel(x + 1, y,
+				rgb8_quant_error(*input.get_pixel(x + 1, y),
+						 quant_error, 7));
+	    }
+
+	    if x != 0 && y + 1 < input.height() {
+		input.put_pixel(x - 1, y + 1,
+				rgb8_quant_error(*input.get_pixel(x - 1, y + 1),
+						 quant_error, 3));
+	    }
+
+	    if y + 1 < input.height() {
+		input.put_pixel(x, y + 1,
+				rgb8_quant_error(*input.get_pixel(x, y + 1),
+						 quant_error, 5));
+	    }
+
+	    if x + 1 < input.width() && y + 1 < input.height() {
+		input.put_pixel(x + 1, y + 1,
+				rgb8_quant_error(*input.get_pixel(x + 1, y + 1),
+						 quant_error, 1));
+	    }
+	}
+
+    }
+
+    input.save("dithered.png").unwrap();
+
+}
+
 // Generate MSB and LSB LUTs and write them to raw files
 fn gen_luts(msb_output: PathBuf, lsb_output: PathBuf) {
     // Generate a MSB lookup table for all possible pixels
@@ -242,6 +354,9 @@ fn main() {
 	Commands::UnformatRaw { input, output } => {
 	    unformat_image_raw(input, output);
 	},
+	Commands::Dither { input } => {
+	    floyd_steinberg_dither(input);
+	}
     };
     
 }
