@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use std::fs;
 
-use image::{ImageReader, Pixel, ImageBuffer, Rgb, RgbImage};
-use image::metadata::{CicpTransferCharacteristics};
+use image::{ImageReader, Pixel, Rgb, RgbImage};
+use image::metadata::{Cicp};
 use clap::{Parser, Subcommand};
 
 #[derive(Subcommand, Debug)]
@@ -130,15 +130,18 @@ fn format_image(img: RgbImage) -> [u8; 240*320] {
     formatted_flattened
 }
 
-fn unformat_image(input: PathBuf, output: PathBuf) {
+fn unformat_image(input: PathBuf) -> RgbImage {
     let formatted = fs::read(input).expect("Failed to read input file");
 
     if formatted.len() != 320*240 {
 	panic!("Formatted data read from file is not {} bytes!", 320*240);
     }
 
-    let mut imgbuf = ImageBuffer::new(240, 320);
-    
+    let mut imgbuf = RgbImage::new(240, 320);
+    // the image will have been converted from sRGB linear, so when we
+    // convert pixels back we expect them to be going into an sRGB
+    // linear image.
+    imgbuf.set_color_space(Cicp::SRGB_LINEAR).unwrap();
     for row in 0..320 {
 	let mut formatted_col = 0;
 	for col in (0..240).step_by(2) {
@@ -162,7 +165,7 @@ fn unformat_image(input: PathBuf, output: PathBuf) {
 	}
     }
 
-    imgbuf.save(output).expect("Failed to write output file");
+    imgbuf
 }
 
 /// You can left-shift a 2-bit color into an 8-bit color, but you
@@ -207,7 +210,7 @@ fn rgb8_quant_error(pixel: &[u8], difference: [i16; 3], quant_num: i16) -> Rgb<u
 /// saved.
 fn floyd_steinberg_dither(input: RgbImage) -> RgbImage {
     let mut img_buffer = input.clone();
-    //img_buffer.copy_from_color_space(input, ConvertColorOptions::
+
     for y in 0..img_buffer.height() {
 	for x in 0..img_buffer.width() {
 	    // for each pixel, get its color channels, then convert
@@ -320,13 +323,13 @@ fn unformat_image_raw(input: PathBuf, output: PathBuf) {
 
 	    let p0 = p0_red | p0_green | p0_blue;
 	    let p1 = p1_red | p1_green | p1_blue;
-	    print!("{:x}, {:x}, ", p0, p1);
+	    //print!("{:x}, {:x}, ", p0, p1);
 	    imgbuf[row][col] = p0;
 	    imgbuf[row][col+1] = p1;
 	    
 	    formatted_col += 1;
 	}
-	println!();
+	//println!();
     }
 
     // reformat 2d to a 1d array
@@ -347,8 +350,15 @@ fn load_240x320_image(input: PathBuf) -> RgbImage {
     let mut img = ImageReader::open(input).expect("Failed to read image")
 	.decode().expect("Failed to decode image")
 	.into_rgb8();
-    
-    img.set_transfer_function(CicpTransferCharacteristics::Linear);
+
+    // we want images in linear sRGB, because we don't know anything
+    // about the gamma of the Sharp display, and we definitely don't
+    // want sRGB gamma affecting images. on top of that, the dithering
+    // process writes pixels back to the image, and it's not clear
+    // what setting the color transfer function does to pixels set
+    // with put_pixel().
+
+    img.set_color_space(Cicp::SRGB_LINEAR).unwrap();
     
     if img.width() != 240 && img.height() != 320 {
 	panic!("Expected image size 240x320, got image size {}x{}",
@@ -369,7 +379,8 @@ fn main() {
 	},
 	
 	Commands::Unformat { input, output } => {
-	    unformat_image(input, output);
+	    let unformatted = unformat_image(input);
+	    unformatted.save(output).expect("Failed to write output file");
 	},
 	
 	Commands::GenLuts { msb_output, lsb_output } => {
