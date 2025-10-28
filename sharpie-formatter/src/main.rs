@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::fs;
 
 use image::{ImageReader, Pixel, ImageBuffer, Rgb, RgbImage};
+use image::metadata::{CicpTransferCharacteristics};
 use clap::{Parser, Subcommand};
 
 #[derive(Subcommand, Debug)]
@@ -206,7 +207,7 @@ fn rgb8_quant_error(pixel: &[u8], difference: [i16; 3], quant_num: i16) -> Rgb<u
 /// saved.
 fn floyd_steinberg_dither(input: RgbImage) -> RgbImage {
     let mut img_buffer = input.clone();
-    
+    //img_buffer.copy_from_color_space(input, ConvertColorOptions::
     for y in 0..img_buffer.height() {
 	for x in 0..img_buffer.width() {
 	    // for each pixel, get its color channels, then convert
@@ -339,20 +340,29 @@ fn unformat_image_raw(input: PathBuf, output: PathBuf) {
     }
     fs::write(output, imgbuf_1d).expect("failed to write output!");
 }
+/// Read a 240x320 image into an RgbImage, including configuring the
+/// color transfer function to linearize out of non-linear sRGB, and
+/// error if the image is the wrong size.
+fn load_240x320_image(input: PathBuf) -> RgbImage {
+    let mut img = ImageReader::open(input).expect("Failed to read image")
+	.decode().expect("Failed to decode image")
+	.into_rgb8();
+    
+    img.set_transfer_function(CicpTransferCharacteristics::Linear);
+    
+    if img.width() != 240 && img.height() != 320 {
+	panic!("Expected image size 240x320, got image size {}x{}",
+	       img.width(), img.height());
+    }
 
+    img
+}
+	    
 fn main() {
     let args = Args::parse();
     match args.command {
 	Commands::Format { input, output } => {
-	    let img = ImageReader::open(input).expect("Failed to read image")
-		.decode().expect("Failed to decode image")
-		.into_rgb8();
-	    
-	    if img.width() != 240 && img.height() != 320 {
-		panic!("Expected image size 240x320, got image size {}x{}",
-		       img.width(), img.height());
-	    }
-	    
+	    let img = load_240x320_image(input);
 	    let formatted = format_image(img);
 	    
 	    fs::write(output, formatted).expect("Failed to write output file");
@@ -371,27 +381,13 @@ fn main() {
 	},
 	
 	Commands::Dither { input, output } => {
-	    let img = ImageReader::open(input).expect("Failed to read image")
-		.decode().expect("Failed to decode image")
-		.into_rgb8();
-	    
-	    if img.width() != 240 && img.height() != 320 {
-		panic!("Expected image size 240x320, got image size {}x{}",
-		       img.width(), img.height());
-	    }
+	    let img = load_240x320_image(input);
+
 	    floyd_steinberg_dither(img).save(output).unwrap();
 	},
-	
 	Commands::DitherFormat { input, output } => {
-	    let img = ImageReader::open(input).expect("Failed to read image")
-		.decode().expect("Failed to decode image")
-		.into_rgb8();
-	    
-	    if img.width() != 240 && img.height() != 320 {
-		panic!("Expected image size 240x320, got image size {}x{}",
-		       img.width(), img.height());
-	    }
-	    
+	    let img = load_240x320_image(input);
+
 	    let dithered = floyd_steinberg_dither(img);
 	    let formatted = format_image(dithered);
 	    fs::write(output, formatted).expect("Failed to write output file");

@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.5.23", features = ["cargo", "derive"] }
-image = "0.25.5"
+image = "0.25.8"
