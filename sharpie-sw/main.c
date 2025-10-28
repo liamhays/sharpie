@@ -13,6 +13,8 @@
 #include "floyd_steinberg_gang.h"
 #include "macaw.h"
 #include "finch.h"
+#include "macaw_correct.h"
+#include "finch_correct.h"
 
 const int led_pin = 14;
 const int five_volt_en = 16;
@@ -347,7 +349,7 @@ void main() {
   channel_config_set_chain_to(&red_c, dma_channel_red_zero); // chain to zero channel to start zero channel when this finishes
   dma_channel_configure(dma_channel_red, &red_c,
 			&pio0->txf[horiz_data_sm], // destination (TX FIFO of SM 2)
-		        macaw_dithered_raw,//red_framebuffer_1d, // source 
+		        macaw_correct_raw,//red_framebuffer_1d, // source 
 			19200, // transfer size = 320*240/4 = 19200
 			true); // start now
 

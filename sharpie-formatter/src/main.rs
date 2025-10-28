@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::fs;
 
-use image::{ImageReader, GenericImageView, Pixel, ImageBuffer, Rgb};
+use image::{ImageReader, Pixel, ImageBuffer, Rgb, RgbImage};
 use clap::{Parser, Subcommand};
 
 #[derive(Subcommand, Debug)]
@@ -24,6 +24,11 @@ enum Commands {
     },
     Dither {
 	input: PathBuf,
+	output: PathBuf,
+    },
+    DitherFormat {
+	input: PathBuf,
+	output: PathBuf,
     }
 
     
@@ -77,13 +82,7 @@ fn two_pixels_to_msb_lsb(p1: u8, p2: u8) -> (u8, u8) {
 }
 
 
-fn format_image(input: PathBuf, output: PathBuf) {
-    let img = ImageReader::open(input).expect("Failed to read image").decode().expect("Failed to decode image");
-    if img.width() != 240 && img.height() != 320 {
-	panic!("Expected image size 240x320, got image size {}x{}", img.width(), img.height());
-    }
-
-
+fn format_image(img: RgbImage) -> [u8; 240*320] {
     // formatted image buffer
     let mut formatted: [[u8; 240]; 320] = [[0; 240]; 320];
     for y in 0..320 {
@@ -126,7 +125,8 @@ fn format_image(input: PathBuf, output: PathBuf) {
 	    formatted_flattened[rowcount*240 + colcount] = *px;
 	}
     }
-    fs::write(output, formatted_flattened).expect("Failed to write output file");
+    
+    formatted_flattened
 }
 
 fn unformat_image(input: PathBuf, output: PathBuf) {
@@ -182,96 +182,97 @@ fn color_2bit_to_8bit(color_2bit: u8) -> u8 {
 
 }
 
-/// Returns the 2bpp equivalent of an Rgb pixel and the correctly
-/// scaled Rgb pixel that represents that 2bpp pixel.
-fn rgb8_to_2bpp_pixel(rgb8: Rgb<u8>) -> Rgb<u8> {
-    let red_2bit = rgb8[0] >> 6;
-    let green_2bit = rgb8[1] >> 6;
-    let blue_2bit = rgb8[2] >> 6;
-
-    Rgb([color_2bit_to_8bit(red_2bit),
-	 color_2bit_to_8bit(green_2bit),
-	 color_2bit_to_8bit(blue_2bit)])
-
+/// Returns the 2bpc (2 bits per color) equivalent of an Rgb pixel and
+/// the correctly scaled Rgb pixel that represents that 2bpp pixel.
+fn rgb8_to_2bpc_pixel(input_pixel: &[u8]) -> [u8; 3] {
+    [input_pixel[0] >> 6, input_pixel[1] >> 6, input_pixel[2] >> 6]
 }
 
-fn rgb8_difference(rgb8_a: Rgb<u8>, rgb8_b: Rgb<u8>) -> [i16; 3] {
-    let a = rgb8_a.channels();
-    let b = rgb8_b.channels();
 
-    // don't reverse these, it clamps everything, or something
-    [i16::from(a[0]) - i16::from(b[0]),
-     i16::from(a[1]) - i16::from(b[1]),
-     i16::from(a[2]) - i16::from(b[2])]
-
+fn rgb8_quant_error(pixel: &[u8], difference: [i16; 3], quant_num: i16) -> Rgb<u8> {
+    // we have to clamp overflows to 255 with a saturating signed add,
+    // otherwise channels that saturate will underflow, causing (for
+    // example) some bright white pixels in the original image to
+    // appear as a full blue pixel in the dithered output. the max
+    // difference is +/- 63 and quant_num is always less than 16, so
+    // we can safely cast to i8 without losing anything.
+    Rgb([pixel[0].saturating_add_signed((difference[0] * quant_num/16) as i8),
+	 pixel[1].saturating_add_signed((difference[1] * quant_num/16) as i8),
+	 pixel[2].saturating_add_signed((difference[2] * quant_num/16) as i8)])
 }
 
-fn rgb8_quant_error(rgb8: Rgb<u8>, difference: [i16; 3], quant_num: i16) -> Rgb<u8> {
-    let mut chan: [u8; 3] = [0u8; 3];
-    chan.clone_from_slice(rgb8.channels());
-
-    // we have to clamp overflows to 255, otherwise channels that
-    // saturate will underflow, causing (for example) some bright
-    // white pixels in the original image to appear as a full blue
-    // pixel in the dithered output. the max difference is +/- 63 and
-    // quant_num is always less than 16, so we can safely cast to i8
-    // without losing anything.
-    chan[0] = chan[0].saturating_add_signed((difference[0] * quant_num/16) as i8);
-    chan[1] = chan[1].saturating_add_signed((difference[1] * quant_num/16) as i8);
-    chan[2] = chan[2].saturating_add_signed((difference[2] * quant_num/16) as i8);
+/// Dither an image (specified in `input_file`) with Floyd-Steinberg
+/// dithering. This returns an RgbImage which can then be formatted or
+/// saved.
+fn floyd_steinberg_dither(input: RgbImage) -> RgbImage {
+    let mut img_buffer = input.clone();
     
-    Rgb([chan[0], chan[1], chan[2]])
-}
-
-// I'm inclined to implement back-and-forth scanning but the result
-// image looks good as is.
-fn floyd_steinberg_dither(input_file: PathBuf) {
-    let mut input = ImageReader::open(input_file).expect("Failed to read image")
-	.decode().expect("Failed to decode image")
-	.into_rgb8();
-    
-    for y in 0..input.height() {
-	for x in 0..input.width() {
-	    let oldpixel = input.get_pixel(x, y);
-	    // convert color to 6bpp color
-
-	    let newpixel_8bpp = rgb8_to_2bpp_pixel(*oldpixel);
-
-	    let quant_error: [i16; 3] = rgb8_difference(*oldpixel, newpixel_8bpp);
+    for y in 0..img_buffer.height() {
+	for x in 0..img_buffer.width() {
+	    // for each pixel, get its color channels, then convert
+	    // it to 2bpc and calculate the quantization error.
+	    let oldpixel = img_buffer.get_pixel(x, y);
+	    let oldpixel_slice = oldpixel.channels();
+	    let newpixel_2bpc = rgb8_to_2bpc_pixel(oldpixel_slice);
+	    // make an 8bpc version of the new pixel to put back in
+	    // the original image, where we keep the initial state and
+	    // diffused error (which gets transformed into a dithered
+	    // image in 8bpc format)
+	    let newpixel_8bpc = Rgb([color_2bit_to_8bit(newpixel_2bpc[0]),
+				     color_2bit_to_8bit(newpixel_2bpc[1]),
+				     color_2bit_to_8bit(newpixel_2bpc[2])]);
 	    
-	    input.put_pixel(x, y, newpixel_8bpp);
+	    // we need to use a signed size bigger than u8 to hold the
+	    // quantization error, but i16 is probably not the most
+	    // optimized size to use here
+	    let quant_error: [i16; 3] =
+		[i16::from(oldpixel_slice[0]) - i16::from(newpixel_8bpc[0]),
+		 i16::from(oldpixel_slice[1]) - i16::from(newpixel_8bpc[1]),
+		 i16::from(oldpixel_slice[2]) - i16::from(newpixel_8bpc[2])];
 
+	    // put the quantized pixel back into the original image
+	    img_buffer.put_pixel(x, y, newpixel_8bpc);
+
+	    // and then diffuse the error over adjacent pixels
+	    
 	    // if we're in a position that would write to pixels outside the image,
 	    // just don't write them.
-	    if x + 1 < input.width() {
-		input.put_pixel(x + 1, y,
-				rgb8_quant_error(*input.get_pixel(x + 1, y),
-						 quant_error, 7));
+	    if x + 1 < img_buffer.width() {
+		img_buffer.put_pixel(
+		    x + 1,
+		    y,
+		    rgb8_quant_error(img_buffer.get_pixel(x + 1, y).channels(),
+				     quant_error, 7));
 	    }
 
-	    if x != 0 && y + 1 < input.height() {
-		input.put_pixel(x - 1, y + 1,
-				rgb8_quant_error(*input.get_pixel(x - 1, y + 1),
-						 quant_error, 3));
+	    if x != 0 && y + 1 < img_buffer.height() {
+		img_buffer.put_pixel(
+		    x - 1,
+		    y + 1,
+		    rgb8_quant_error(img_buffer.get_pixel(x - 1, y + 1).channels(),
+				     quant_error, 3));
 	    }
 
-	    if y + 1 < input.height() {
-		input.put_pixel(x, y + 1,
-				rgb8_quant_error(*input.get_pixel(x, y + 1),
-						 quant_error, 5));
+	    if y + 1 < img_buffer.height() {
+		img_buffer.put_pixel(
+		    x,
+		    y + 1,
+		    rgb8_quant_error(img_buffer.get_pixel(x, y + 1).channels(),
+				     quant_error, 5));
 	    }
 
-	    if x + 1 < input.width() && y + 1 < input.height() {
-		input.put_pixel(x + 1, y + 1,
-				rgb8_quant_error(*input.get_pixel(x + 1, y + 1),
-						 quant_error, 1));
+	    if x + 1 < img_buffer.width() && y + 1 < img_buffer.height() {
+		img_buffer.put_pixel(
+		    x + 1,
+		    y + 1,
+		    rgb8_quant_error(img_buffer.get_pixel(x + 1, y + 1).channels(),
+				     quant_error, 1));
 	    }
 	}
 
     }
 
-    input.save("dithered.png").unwrap();
-
+    img_buffer
 }
 
 // Generate MSB and LSB LUTs and write them to raw files
@@ -343,19 +344,57 @@ fn main() {
     let args = Args::parse();
     match args.command {
 	Commands::Format { input, output } => {
-	    format_image(input, output);
+	    let img = ImageReader::open(input).expect("Failed to read image")
+		.decode().expect("Failed to decode image")
+		.into_rgb8();
+	    
+	    if img.width() != 240 && img.height() != 320 {
+		panic!("Expected image size 240x320, got image size {}x{}",
+		       img.width(), img.height());
+	    }
+	    
+	    let formatted = format_image(img);
+	    
+	    fs::write(output, formatted).expect("Failed to write output file");
 	},
+	
 	Commands::Unformat { input, output } => {
 	    unformat_image(input, output);
 	},
+	
 	Commands::GenLuts { msb_output, lsb_output } => {
 	    gen_luts(msb_output, lsb_output);
 	},
+	
 	Commands::UnformatRaw { input, output } => {
 	    unformat_image_raw(input, output);
 	},
-	Commands::Dither { input } => {
-	    floyd_steinberg_dither(input);
+	
+	Commands::Dither { input, output } => {
+	    let img = ImageReader::open(input).expect("Failed to read image")
+		.decode().expect("Failed to decode image")
+		.into_rgb8();
+	    
+	    if img.width() != 240 && img.height() != 320 {
+		panic!("Expected image size 240x320, got image size {}x{}",
+		       img.width(), img.height());
+	    }
+	    floyd_steinberg_dither(img).save(output).unwrap();
+	},
+	
+	Commands::DitherFormat { input, output } => {
+	    let img = ImageReader::open(input).expect("Failed to read image")
+		.decode().expect("Failed to decode image")
+		.into_rgb8();
+	    
+	    if img.width() != 240 && img.height() != 320 {
+		panic!("Expected image size 240x320, got image size {}x{}",
+		       img.width(), img.height());
+	    }
+	    
+	    let dithered = floyd_steinberg_dither(img);
+	    let formatted = format_image(dithered);
+	    fs::write(output, formatted).expect("Failed to write output file");
 	}
     };
     
