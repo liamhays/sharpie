@@ -94,19 +94,19 @@ jmp changedloop_from_inject  side 1 [15]
 
 % c-sdk {
 #include "hardware/gpio.h"
-static inline void sharpie_partial_gck_pio_init(PIO pio, uint sm, uint offset, uint gen_pin) {
-  pio_gpio_init(pio, gen_pin);
+static inline void sharpie_partial_gck_pio_init(PIO pio, uint sm, uint offset, uint gck_pin) {
+  pio_gpio_init(pio, gck_pin);
 
-  pio_gpio_init(pio, gen_pin + 1);
+  pio_gpio_init(pio, gck_pin + 1);
   
-  pio_sm_set_consecutive_pindirs(pio, sm, gen_pin, 2, true); // set all pins output
+  pio_sm_set_consecutive_pindirs(pio, sm, gck_pin, 2, true); // set all pins output
   
   pio_sm_config c = sharpie_partial_gck_program_get_default_config(offset);
 
-  // `set` pin is GEN
-  sm_config_set_set_pins(&c, gen_pin, 1);
   // and side-set pin is GCK
-  sm_config_set_sideset_pins(&c, gen_pin + 1);
+  sm_config_set_sideset_pins(&c, gck_pin);
+  // `set` pin is GEN
+  sm_config_set_set_pins(&c, gck_pin + 1, 1);
 
   // 150 MHz / 387.5 => 1/32 of a GCK h/l = 2.583e-6, which is in spec but probably
   // jitters a bit

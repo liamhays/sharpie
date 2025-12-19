@@ -198,11 +198,11 @@ void init_partial_update_pios(PIO intb_gsp_horiz_pio, PIO gck_gck_end_pio) {
   // INTB on 0, GSP on 1
   sharpie_partial_intb_gsp_pio_init(intb_gsp_horiz_pio, partial_intb_gsp_sm, intb_gsp_offset, 0);
 
-  // GEN on 2, GCK on 3
+  // GCK on 2, GCK on 3
   sharpie_partial_gck_pio_init(gck_gck_end_pio, partial_gck_sm, gck_offset, 2);
 
-  // GCK on 3 again.
-  sharpie_partial_gck_end_pio_init(gck_gck_end_pio, partial_gck_end_sm, gck_end_offset, 3);
+  // GCK on 2 again.
+  sharpie_partial_gck_end_pio_init(gck_gck_end_pio, partial_gck_end_sm, gck_end_offset, 2);
 
   // BSP on pin 4, BCK on pin 5, data on pins 6-11
   sharpie_partial_horiz_data_pio_init(intb_gsp_horiz_pio, partial_horiz_data_sm, horiz_data_offset, 4, 6);
@@ -319,53 +319,9 @@ void main() {
   add_pio_programs(pio0);
   restart_state_machines(pio0);
 
-  // GPIO pins can only be mapped to one PIO at a time, so we have
-  // to swap between PIOs.
   
-  
-  
-  // configure DMA AFTER we charge the loop registers
-  //
+  // we found that the initial blank screen isn't necessary.
 
-  int dma_channel = dma_claim_unused_channel(true); // true -> required
-  if (dma_channel < 0) {
-    printf("failed to claim dma channel\n");
-    error_handler();
-  }
-
-  // DMA chaining is instantaneous, this does not affect timing.
-  int dma_channel_zero = dma_claim_unused_channel(true);
-  if (dma_channel_zero < 0) {
-    printf("failed to claim dma zero channel\n");
-    error_handler();
-  }
-
-
-  // this DMA is configured for the initial black screen, to send on PIO 0
-  dma_channel_config c = dma_channel_get_default_config(dma_channel);
-  channel_config_set_read_increment(&c, false);
-  channel_config_set_write_increment(&c, false); // no increment writes (into the FIFO)
-  channel_config_set_transfer_data_size(&c, DMA_SIZE_32); // four byte transfers (one byte doesn't work)
-  channel_config_set_dreq(&c, pio_get_dreq(pio0, horiz_data_sm, true)); // true for sending data to SM
-  channel_config_set_chain_to(&c, dma_channel_zero); // chain to zero channel to start zero channel when this finishes
-  dma_channel_configure(dma_channel, &c,
-			&pio0->txf[horiz_data_sm], // destination (TX FIFO of SM 2)
-			&global_32bit_zero,
-			19200, // transfer size = 320*240/4 = 19200
-			true); // start now
-  
-
-
-  dma_channel_config c_zero = dma_channel_get_default_config(dma_channel_zero);
-  channel_config_set_read_increment(&c_zero, false); // just send zeros
-  channel_config_set_write_increment(&c_zero, false); // write into FIFO
-  channel_config_set_transfer_data_size(&c_zero, DMA_SIZE_32);
-  channel_config_set_dreq(&c_zero, pio_get_dreq(pio0, horiz_data_sm, true));
-  dma_channel_configure(dma_channel_zero, &c_zero,
-			&pio0->txf[horiz_data_sm],
-			&global_32bit_zero,
-			120/4, // 120 bytes 
-			false); // wait for chain start
 
   // restart all state machine clocks
   pio_clkdiv_restart_sm_mask(pio0, 0b111); // restart state machines
@@ -442,38 +398,38 @@ void main() {
   restart_state_machines(pio0);
   pio_clkdiv_restart_sm_mask(pio0, 0b111);
   
-  int dma_channel_red = dma_claim_unused_channel(true); // true -> required
-  if (dma_channel_red < 0) {
+  int image_pixels_channel = dma_claim_unused_channel(true); // true -> required
+  if (image_pixels_channel < 0) {
     printf("failed to claim red dma channel\n");
     error_handler();
   }
 
-  int dma_channel_red_zero = dma_claim_unused_channel(true);
-  if (dma_channel_red_zero < 0) {
+  int image_pixels_zero_channel = dma_claim_unused_channel(true);
+  if (image_pixels_zero_channel < 0) {
     printf("failed to claim red dma zero channel\n");
     error_handler();
   }
   
-  dma_channel_config red_c = dma_channel_get_default_config(dma_channel_red);
-  channel_config_set_read_increment(&red_c, true); // increment reads
-  channel_config_set_write_increment(&red_c, false); // no increment writes (into the FIFO)
-  channel_config_set_transfer_data_size(&red_c, DMA_SIZE_32); // four byte transfers (one byte doesn't work)
-  channel_config_set_dreq(&red_c, pio_get_dreq(pio0, horiz_data_sm, true)); // true for sending data to SM
-  channel_config_set_chain_to(&red_c, dma_channel_red_zero); // chain to zero channel to start zero channel when this finishes
-  dma_channel_configure(dma_channel_red, &red_c,
+  dma_channel_config image_c = dma_channel_get_default_config(image_pixels_channel);
+  channel_config_set_read_increment(&image_c, true); // increment reads
+  channel_config_set_write_increment(&image_c, false); // no increment writes (into the FIFO)
+  channel_config_set_transfer_data_size(&image_c, DMA_SIZE_32); // four byte transfers (one byte doesn't work)
+  channel_config_set_dreq(&image_c, pio_get_dreq(pio0, horiz_data_sm, true)); // true for sending data to SM
+  channel_config_set_chain_to(&image_c, image_pixels_zero_channel); // chain to zero channel to start zero channel when this finishes
+  dma_channel_configure(image_pixels_channel, &image_c,
 			&pio0->txf[horiz_data_sm], // destination (TX FIFO of SM 2)
-		        pencils,//red_framebuffer_1d, // source 
+		        pencils, // source 
 			19200, // transfer size = 320*240/4 = 19200
 			true); // start now
 
 
 
-  dma_channel_config red_c_zero = dma_channel_get_default_config(dma_channel_red_zero);
-  channel_config_set_read_increment(&red_c_zero, false); // just send zeros
-  channel_config_set_write_increment(&red_c_zero, false); // write into FIFO
-  channel_config_set_transfer_data_size(&red_c_zero, DMA_SIZE_32);
-  channel_config_set_dreq(&red_c_zero, pio_get_dreq(pio0, horiz_data_sm, true));
-  dma_channel_configure(dma_channel_red_zero, &red_c_zero,
+  dma_channel_config image_zero_c = dma_channel_get_default_config(image_pixels_zero_channel);
+  channel_config_set_read_increment(&image_zero_c, false); // just send zeros
+  channel_config_set_write_increment(&image_zero_c, false); // write into FIFO
+  channel_config_set_transfer_data_size(&image_zero_c, DMA_SIZE_32);
+  channel_config_set_dreq(&image_zero_c, pio_get_dreq(pio0, horiz_data_sm, true));
+  dma_channel_configure(image_pixels_zero_channel, &image_zero_c,
 			&pio0->txf[horiz_data_sm],
 			&global_32bit_zero,
 			120/4,
@@ -493,6 +449,9 @@ void main() {
   // wait a few seconds and then send partial update
   sleep_ms(5000);
 
+  // GPIO pins can only be mapped to one PIO at a time, so we have
+  // to swap between PIOs.
+  
   init_partial_update_pios(pio1, pio2);
   
   int gck_dma_channel = dma_claim_unused_channel(true);
@@ -504,29 +463,29 @@ void main() {
   // then the data stream
   int pixel_data_dma_channel = dma_claim_unused_channel(true);
   if (pixel_data_dma_channel < 0) {
-    printf("failed to claim pixel data DMA channel\n");
+    printf("failed to claim partial pixel data DMA channel\n");
     error_handler();
   }
 
-  dma_channel_config partial_c = dma_channel_get_default_config(gck_dma_channel);
-  channel_config_set_read_increment(&c, true);
-  channel_config_set_write_increment(&c, false);
-  channel_config_set_transfer_data_size(&c, DMA_SIZE_32); // we use the WHOLE width of the FIFO entry
-  channel_config_set_dreq(&c, pio_get_dreq(pio2, partial_gck_sm, true)); // true for sending data to the SM
-  dma_channel_configure(gck_dma_channel, &c,
+  dma_channel_config partial_gck_c = dma_channel_get_default_config(gck_dma_channel);
+  channel_config_set_read_increment(&partial_gck_c, true);
+  channel_config_set_write_increment(&partial_gck_c, false);
+  channel_config_set_transfer_data_size(&partial_gck_c, DMA_SIZE_32); // we use the WHOLE width of the FIFO entry
+  channel_config_set_dreq(&partial_gck_c, pio_get_dreq(pio2, partial_gck_sm, true)); // true for sending data to the SM
+  dma_channel_configure(gck_dma_channel, &partial_gck_c,
 			&pio2->txf[partial_gck_sm],
 			gck_control_data,
 			3,
 			true);
 
-  c = dma_channel_get_default_config(pixel_data_dma_channel);
-  channel_config_set_read_increment(&c, true);
-  channel_config_set_write_increment(&c, false);
+  dma_channel_config partial_data_c = dma_channel_get_default_config(pixel_data_dma_channel);
+  channel_config_set_read_increment(&partial_data_c, true);
+  channel_config_set_write_increment(&partial_data_c, false);
   // we found originally that transfers have to be 32 bits, for some
   // reason, and that still holds true for slightly modified horiz/data.
-  channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
-  channel_config_set_dreq(&c, pio_get_dreq(pio1, partial_horiz_data_sm, true));
-  dma_channel_configure(pixel_data_dma_channel, &c,
+  channel_config_set_transfer_data_size(&partial_data_c, DMA_SIZE_32);
+  channel_config_set_dreq(&partial_data_c, pio_get_dreq(pio1, partial_horiz_data_sm, true));
+  dma_channel_configure(pixel_data_dma_channel, &partial_data_c,
 			&pio1->txf[partial_horiz_data_sm],
 			partial_frame_pixels,
 			19*60+30, // +30 for the final 1/2 line
@@ -537,55 +496,7 @@ void main() {
   
   while (true);
 
-  // configure final black DMA
 
-  restart_state_machines(pio0);
-  pio_clkdiv_restart_sm_mask(pio0, 0b111);
-  
-  int dma_channel_final_black = dma_claim_unused_channel(true); // true -> required
-  if (dma_channel_final_black < 0) {
-    printf("failed to claim final black dma channel\n");
-    error_handler();
-  }
-
-  int dma_channel_final_black_zero = dma_claim_unused_channel(true);
-  if (dma_channel_final_black_zero < 0) {
-    printf("failed to claim final black dma zero channel\n");
-    error_handler();
-  }
-  
-  dma_channel_config final_black_c = dma_channel_get_default_config(dma_channel_final_black);
-  channel_config_set_read_increment(&final_black_c, false); 
-  channel_config_set_write_increment(&final_black_c, false); // no increment writes (into the FIFO)
-  channel_config_set_transfer_data_size(&final_black_c, DMA_SIZE_32); // four byte transfers (one byte doesn't work)
-  channel_config_set_dreq(&final_black_c, pio_get_dreq(pio0, horiz_data_sm, true)); // true for sending data to SM
-  channel_config_set_chain_to(&final_black_c, dma_channel_final_black_zero); // chain to zero channel to start zero channel when this finishes
-  dma_channel_configure(dma_channel_final_black, &final_black_c,
-			&pio0->txf[horiz_data_sm], // destination (TX FIFO of SM 2)
-		        &global_32bit_zero,//black_framebuffer, // source 
-			19200, // transfer size = 320*240/4 = 19200
-			true); // start now
-
-
-
-  dma_channel_config final_black_c_zero = dma_channel_get_default_config(dma_channel_final_black_zero);
-  channel_config_set_read_increment(&final_black_c_zero, false); // just send zeros
-  channel_config_set_write_increment(&final_black_c_zero, false); // write into FIFO
-  channel_config_set_transfer_data_size(&final_black_c_zero, DMA_SIZE_32);
-  channel_config_set_dreq(&final_black_c_zero, pio_get_dreq(pio0, horiz_data_sm, true));
-  dma_channel_configure(dma_channel_final_black_zero, &final_black_c_zero,
-			&pio0->txf[horiz_data_sm],
-			&global_32bit_zero,
-			120/4, // 240 bytes but 4-byte transfers
-			false); // wait for chain start
-
-  // and run again
-
-
-  sleep_ms(4);
-  pio0->irq_force = 0b1;
-  
-  printf("sending black screen\n");
   // wait for frame to transmit
   sleep_ms(60);
 
