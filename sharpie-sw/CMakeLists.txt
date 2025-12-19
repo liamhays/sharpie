@@ -24,6 +24,11 @@ pico_enable_stdio_uart(sharpie-sw 0)
 pico_generate_pio_header(sharpie-sw ${CMAKE_CURRENT_LIST_DIR}/sharpie-vertical.pio)
 pico_generate_pio_header(sharpie-sw ${CMAKE_CURRENT_LIST_DIR}/sharpie-gen.pio)
 pico_generate_pio_header(sharpie-sw ${CMAKE_CURRENT_LIST_DIR}/sharpie-horiz-data.pio)
+# PIO code for partial updates as well
+pico_generate_pio_header(sharpie-sw ${CMAKE_CURRENT_LIST_DIR}/sharpie-partial-gck.pio)
+pico_generate_pio_header(sharpie-sw ${CMAKE_CURRENT_LIST_DIR}/sharpie-partial-intb-gsp.pio)
+pico_generate_pio_header(sharpie-sw ${CMAKE_CURRENT_LIST_DIR}/sharpie-partial-gck-end.pio)
+pico_generate_pio_header(sharpie-sw ${CMAKE_CURRENT_LIST_DIR}/sharpie-partial-horiz-data.pio)
 
 # Add pico_stdlib library which aggregates commonly used features
 target_link_libraries(sharpie-sw pico_stdlib hardware_pio hardware_dma hardware_pwm)

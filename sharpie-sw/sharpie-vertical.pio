@@ -12,7 +12,7 @@
 wait 1 irq 0   side 0b000      ; wait for CPU to set PIO IRQ 0
 pull           side 0b001      ; rise INTB, pull counter (CPU put value in FIFO)
 mov x, osr     side 0b011 [1]  ; rise GSP one PIO cycle after INTB, then delay another cycle and move OSR to X
-nop            side 0b111 [3]  ; rise GCK1, wait all of GCK1, set IRQ 2 at GCK1 rise for horiz-data code
+nop            side 0b111 [3]  ; rise GCK1, wait all of GCK1, set IRQ 2 at GCK2 fall for horiz-data code
 irq set 2      side 0b011 [1]  ; fall GCK1, wait until halfway through GCK2
 irq set 1      side 0b001 [1]  ; fall GSP, wait until end of GCK2, set IRQ 1 at halfway through GCK2
 loop:

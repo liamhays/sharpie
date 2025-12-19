@@ -1,0 +1,124 @@
+.program sharpie_partial_gck
+.pio_version 1
+.side_set 1
+; Sharpie partial update PIO: GCK controller
+
+; one SM that controls just GCK
+; side-set: GCK
+; clock: 1/32 of a (full-length) GCK h/l
+; autopull: enabled, threshold 32 bits
+
+; this expects a DMA stream of 32-bit ints, starting with a number of
+; skipped image lines (not GCK h/ls) to skip, followed by a number of
+; image lines to change. the changed lines count has to be (<changed
+; lines> - 1), and the skipped one has to be that way too.
+
+; INTB/GSP SM sets irq 1 on the cycle after GSP rises. the wait
+; instruction takes two cycles, so we have to add some fine-tuned delay
+; over here.
+
+wait 1 irq prev 1       side 0 [6]  ; wait for INTB/GSP SM in previous PIO
+out x, 32               side 1 [15] ; get first skipped lines counter, rise GCK1,
+                                    ; wait almost half of it
+nop                     side 1 [15] ; wait rest of GCK1
+nop                     side 0 [15] ; fall GCK2 and wait for its first half
+nop                     side 0 [14] ; wait almost the rest of GCK2
+jmp !x, initialchange   side 0      ; if first skipped lines counter is 0, jump to lines changed loop. this is a cue that the CPU needs to put in the data buffer
+
+.wrap_target
+nop                     side 1
+;skiploop:
+;nop                     side 1      ; send skipped line GCK pulses really fast
+;jmp x--, skiploop       side 0
+
+skiploop:
+nop                      side 0
+jmp x--, skiploop        side 1
+
+irq set 2                side 0
+; now flow seamlessly into changed lines loop
+
+; note that we have a [14] because that flow is in fact seamless.
+
+; problem: irq set 2 here doesn't really work because it's setting the irq an entire
+; cycle too late (since we're piggybacking first GCK off of the final skip)
+; can we move the first skip rise to the top (beneath wrap) and then have the
+; final skip fall outside the loop?
+
+; that works, and it works a little *too* well that I'm
+; suspicious it doesn't work at all.
+
+changedstart:
+;irq set 2               side 0 [14] ; first GCK after a skip section is always low,
+;                                    ; set irq for horiz/data on next SM and wait half
+nop                     side 0 [14]
+out x, 32               side 0 [15] ; get counter and wait rest of this long GCK
+
+changedloop:
+nop                     side 1 [7]  
+set pins, 1             side 1 [15] ; rise GEN and wait rest of this GCK half
+set pins, 0             side 1 [7]  ; fall GEN
+changedloop_from_inject:
+nop                     side 0 [7]  ; fall GCK
+set pins, 1             side 0 [15] ; rise GEN, wait
+set pins, 0             side 0 [6]  ; fall GEN, wait     
+jmp x--, changedloop    side 0      ; repeat until x == 0
+
+exit:
+out x, 32               side 1      ; get next skip counter (which will never be 0,
+                                    ; that's only for the start)
+
+
+; if the number provided is greater than 1 (2 skips), the first high skip pulse will
+; be 2 short cycles instead of one. this shouldn't matter at all, according to the
+; display spec, but it is worth noting.
+
+; and go back to skips
+.wrap
+
+
+; if we start without any skips, we need a special code path.
+; this has to 
+initialchange:
+; note how there's a [13] at the start of this. we need another nop to keep
+; the time consistent
+nop                          side 0
+; then we load the changed lines counter and run the first before
+out x, 32                    side 1 [15]
+jmp changedloop_from_inject  side 1 [15]
+
+; this will need to have those final long GCKs supplied to it as a
+; changed GCK value, after which it will hit the `out` at `exit:` and
+; stall
+
+
+% c-sdk {
+#include "hardware/gpio.h"
+static inline void sharpie_partial_gck_pio_init(PIO pio, uint sm, uint offset, uint gen_pin) {
+  pio_gpio_init(pio, gen_pin);
+
+  pio_gpio_init(pio, gen_pin + 1);
+  
+  pio_sm_set_consecutive_pindirs(pio, sm, gen_pin, 2, true); // set all pins output
+  
+  pio_sm_config c = sharpie_partial_gck_program_get_default_config(offset);
+
+  // `set` pin is GEN
+  sm_config_set_set_pins(&c, gen_pin, 1);
+  // and side-set pin is GCK
+  sm_config_set_sideset_pins(&c, gen_pin + 1);
+
+  // 150 MHz / 387.5 => 1/32 of a GCK h/l = 2.583e-6, which is in spec but probably
+  // jitters a bit
+  sm_config_set_clkdiv(&c, 387.5);
+  // shift right, autopull on, autopull threshold 32
+  sm_config_set_out_shift(&c, true, true, 32);
+
+  // even worse, it appears we might not be able to get it in spec and maintain 1/32
+  // GCK h/l cycle time
+
+  pio_sm_init(pio, sm, offset, &c);
+  pio_sm_set_enabled(pio, sm, true);
+}
+
+%}
