@@ -20,21 +20,26 @@
 
 .wrap_target
 wait 1 irq 0     side 0b00     ; wait for CPU to tell us to start
-out x, 32        side 0b01 [7] ; rise INTB, get value of main counter
-
-nop              side 0b11 [7] ; rise GSP
+nop              side 0b01 [7] ; rise INTB
+set x, 21        side 0b11 [7] ; rise GSP, set x for loop later
 out y, 32        side 0b11     ; wait more GSP, to meet thsGSP timing, and get loop counter
 irq set 1        side 0b11     ; wait rest of GSP and tell GCK + GCK end to start
 
-; it's easier and smaller to wait out all of GSP with a loop instead of with
-; a bunch of instructions
+; wait out GSP with a loop, the counter comes from the CPU
 gsploop:
 jmp y--, gsploop side 0b11
 
-loop:
-jmp x--, loop    side 0b01     ; just hang out, man
 
-; literally just wrap, it'll wait for irq 0
+wait 1 irq next 3 side 0b01   ; wait for GCK end to set irq 3
+
+; this loop starts after GCK end begins running the large GCK pulses at the end
+; of a partial frame, and makes sure INTB falls at the (approximately) halfway
+; point of GCK646. the counter in x was determined through trial
+; and error.
+loop:
+jmp x--, loop    side 0b01 [4]    ; just hang out, man
+
+; literally just wrap, it'll wait for irq 0 and set INTB low
 .wrap
 
 

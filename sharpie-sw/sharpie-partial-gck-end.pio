@@ -11,7 +11,9 @@ jmp x--, waitloop
 
 .wrap_target
 
-set y, 30            side 0b1
+; set irq 3 for INTB fall
+irq set 3            side 0b1
+set y, 29            side 0b1
 highloop:
 jmp y--, highloop    side 0b1
 

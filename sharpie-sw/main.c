@@ -144,25 +144,12 @@ uint32_t gck_control_data[] = {SKIPS - 1, // skip 99 lines
 			       CHANGES - 1, // send 19 lines of data
 			       (320-SKIPS-CHANGES) - 1}; // skip the rest
 
-// INTB/GSP timeout
-//uint32_t intb_gsp_timeout = 
 // number of 1/32 GCK h/ls to wait until the GCK end SM activates
 uint32_t gck_end_timeout = 2*32 + // 2 full GCK h/ls at start
   SKIPS*2 + // 99 skipped lines, short GCK h/ls
   (CHANGES*2 + 1)*32 + // 19 changed lines (add 1 extra h/l for the way GCK works)
   (319-SKIPS-CHANGES)*2 + 1; // first skip after changed is 2x as long, but
                      // the initial 2*32 includes the first line, so we use 319, not 320
-		     
-
-// INTB loop counts down in 1/32 GCK h/l steps. the loop starts 96
-// h/ls after INTB rises, or halfway through GCK 2.
-
-uint32_t intb_timeout = 16 + // GSP ends (and INTB loop starts) halfway through GCK 2
-  SKIPS*2 +
-  (CHANGES*2 + 1) * 32 +
-  (319-SKIPS-CHANGES)*2 + 1 +
-  32*3 + 16 + // wait until halfway through GCK646
-  1; // we need an extra +1 for some reason, probably a clock misalignment somewhere.
 
 uint32_t gsp_high_timeout = 53;
 
@@ -207,10 +194,7 @@ void init_partial_update_pios(PIO intb_gsp_horiz_pio, PIO gck_gck_end_pio) {
   // BSP on pin 4, BCK on pin 5, data on pins 6-11
   sharpie_partial_horiz_data_pio_init(intb_gsp_horiz_pio, partial_horiz_data_sm, horiz_data_offset, 4, 6);
   
-  // first, push a value onto the INTB/GSP FIFO for how long it should
-  // leave INTB high
-  pio_sm_put(intb_gsp_horiz_pio, partial_intb_gsp_sm, intb_timeout);
-  // then a value for how long it should leave GSP high (this is
+  // push a value for how long the INTB/GSP SM should leave GSP high (this is
   // always the same, but it's too big for a set instruction)
   pio_sm_put(intb_gsp_horiz_pio, partial_intb_gsp_sm, gsp_high_timeout);
   // prepare GCK end SM for irq 1 countdown
