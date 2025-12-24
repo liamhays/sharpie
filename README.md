@@ -4,8 +4,7 @@ a color Sharp memory display using only the PIO hardware in the RP2350
 microcontroller. For in-depth documentation and discussion, see the
 relevant blog posts [https://cryothene.neocities.org](on my website).
 
-![Me, holding a working Sharpie board displaying a picture of colored
-pencils](sharpie-pictures/sharpie-handheld.jpg)
+<img src="sharpie-pictures/sharpie-handheld.jpg" width=300>
 
 ## Repo contents
 - `sharpie-cad`: a little bit of FreeCAD for a display/board carrier
