@@ -16,7 +16,8 @@
 #include "sharpie-partial-gck-end.pio.h"
 #include "sharpie-partial-horiz-data.pio.h"
 
-
+// to generate this image, run `cargo run -- dither-format pencils.jpg
+// pencils.raw`, then use xxd to make a header file
 #include "pencils.h"
 
 const int led_pin = 14;
@@ -143,7 +144,6 @@ uint partial_gck_end_sm = 1;
 uint32_t gck_control_data[] = {SKIPS - 1, // skip 99 lines
 			       CHANGES - 1, // send 19 lines of data
 			       (320-SKIPS-CHANGES) - 1}; // skip the rest
-
 // number of 1/32 GCK h/ls to wait until the GCK end SM activates
 uint32_t gck_end_timeout = 2*32 + // 2 full GCK h/ls at start
   SKIPS*2 + // 99 skipped lines, short GCK h/ls
@@ -153,7 +153,7 @@ uint32_t gck_end_timeout = 2*32 + // 2 full GCK h/ls at start
 
 uint32_t gsp_high_timeout = 53;
 
-uint8_t partial_frame_pixels[CHANGES*240+120]; // +120 for final 1/2 line
+uint8_t partial_frame_pixels[CHANGES*240+120+4]; // +120 for final 1/2 line
 
 
 void init_partial_update_pios(PIO intb_gsp_horiz_pio, PIO gck_gck_end_pio) {
@@ -258,7 +258,13 @@ void main() {
 
   memset(partial_frame_pixels, 0, sizeof(partial_frame_pixels));
   memset(partial_frame_pixels, 0b001100, CHANGES*240);
-
+  /*uint32_t changed_lines_counter = CHANGES*2;
+  partial_frame_pixels[0] = changed_lines_counter & 0xff;
+  partial_frame_pixels[1] = (changed_lines_counter >> 8) & 0xff;
+  partial_frame_pixels[2] = (changed_lines_counter >> 16) & 0xff;
+  partial_frame_pixels[3] = (changed_lines_counter >> 24) & 0xff;*/
+  
+  
   /*while (!stdio_usb_connected()) {
     sleep_ms(50);
     }*/

@@ -19,6 +19,8 @@
 ;
 ; ISR must also be charged to 59 before this state machine ever starts running
 
+;out y, 16         side 0b00    ; get first number of changed lines
+
 .wrap_target
 
 ; wait for GCK rise from PIO 1

@@ -27,9 +27,6 @@ jmp !x, initialchange   side 0      ; if first skipped lines counter is 0, jump 
 
 .wrap_target
 nop                     side 1
-;skiploop:
-;nop                     side 1      ; send skipped line GCK pulses really fast
-;jmp x--, skiploop       side 0
 
 skiploop:
 nop                      side 0
@@ -45,12 +42,7 @@ irq set 2                side 0
 ; can we move the first skip rise to the top (beneath wrap) and then have the
 ; final skip fall outside the loop?
 
-; that works, and it works a little *too* well that I'm
-; suspicious it doesn't work at all.
-
 changedstart:
-;irq set 2               side 0 [14] ; first GCK after a skip section is always low,
-;                                    ; set irq for horiz/data on next SM and wait half
 nop                     side 0 [14]
 out x, 32               side 0 [15] ; get counter and wait rest of this long GCK
 
@@ -80,16 +72,11 @@ out x, 32               side 1      ; get next skip counter (which will never be
 ; if we start without any skips, we need a special code path.
 ; this has to 
 initialchange:
-; note how there's a [13] at the start of this. we need another nop to keep
-; the time consistent
 nop                          side 0
 ; then we load the changed lines counter and run the first before
 out x, 32                    side 1 [15]
 jmp changedloop_from_inject  side 1 [15]
 
-; this will need to have those final long GCKs supplied to it as a
-; changed GCK value, after which it will hit the `out` at `exit:` and
-; stall
 
 
 % c-sdk {
