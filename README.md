@@ -2,9 +2,9 @@
 This is the repository for the Sharpie project, which intends to drive
 a color Sharp memory display using only the PIO hardware in the RP2350
 microcontroller. For in-depth documentation and discussion, see the
-relevant blog posts [on my website](https://cryothene.neocities.org)
+relevant blog posts [on my website](https://cryothene.neocities.org).
 
-<img src="sharpie-pictures/sharpie-handheld.jpg" width=400>
+<img src="sharpie-pictures/sharpie-handheld.jpg" width=500>
 
 ## Repo contents
 - `sharpie-cad`: a little bit of FreeCAD for a display/board carrier
