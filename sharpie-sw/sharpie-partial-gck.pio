@@ -20,10 +20,12 @@
 wait 1 irq prev 1       side 0 [6]  ; wait for INTB/GSP SM in previous PIO
 out x, 32               side 1 [15] ; get first skipped lines counter, rise GCK1,
                                     ; wait almost half of it
-nop                     side 1 [15] ; wait rest of GCK1
+nop                     side 1 [14] ; wait rest of GCK1
+jmp !x, initialchange   side 1
 nop                     side 0 [15] ; fall GCK2 and wait for its first half
-nop                     side 0 [14] ; wait almost the rest of GCK2
-jmp !x, initialchange   side 0      ; if first skipped lines counter is 0, jump to lines changed loop. this is a cue that the CPU needs to put in the data buffer
+nop                     side 0 [15] ; wait the rest of GCK2
+; if we start with changed lines, we have to send data starting on GCK2
+
 
 .wrap_target
 nop                     side 1
@@ -50,8 +52,10 @@ changedloop:
 nop                     side 1 [7]  
 set pins, 1             side 1 [15] ; rise GEN and wait rest of this GCK half
 set pins, 0             side 1 [7]  ; fall GEN
+
+nop                     side 0 [1]  ; fall GCK
 changedloop_from_inject:
-nop                     side 0 [7]  ; fall GCK
+nop                     side 0 [4]
 set pins, 1             side 0 [15] ; rise GEN, wait
 set pins, 0             side 0 [6]  ; fall GEN, wait     
 jmp x--, changedloop    side 0      ; repeat until x == 0
@@ -70,12 +74,12 @@ out x, 32               side 1      ; get next skip counter (which will never be
 
 
 ; if we start without any skips, we need a special code path.
-; this has to 
+; this has to do GCK2 here (or, in this case, start it) AND get
+; the first changed lines counter
 initialchange:
-nop                          side 0
-; then we load the changed lines counter and run the first before
-out x, 32                    side 1 [15]
-jmp changedloop_from_inject  side 1 [15]
+irq set 2                    side 0
+out x, 32                    side 0
+jmp changedloop_from_inject  side 0
 
 
 
