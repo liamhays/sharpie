@@ -5,9 +5,6 @@
 
 ; side-set: BCK and BSP
 ;           bit 1   bit 0
-; (side-set layout follows vertical state machine side-set layout)
-; this program controls BSP, BCK, and the data pins (6 data bits but
-; shift 8 is fine)
 
 ; each instruction is 166 ns (1/4 of a BCK cycle)
 
@@ -19,24 +16,14 @@
 ;
 ; ISR must also be charged to 59 before this state machine ever starts running
 
-;out y, 16         side 0b00    ; get first number of changed lines
-
 .wrap_target
 
 ; wait for GCK rise from PIO 1
 
 wait 1 irq next 2 side 0b00
 
-; this has to stall, because GCK will set irq 2 even when it
-; stalls (when GCK end is activated), and we don't want to try
-; to send data when we shouldn't.
-
-
 ; we can't tamper with any of the delays beneath the `restart:` label, because
 ; then the loop is broken (past the first time, at best, and always, at worst)
-
-; TODO: an 8-bit outer counter is not suitable, it needs to be able to cover the
-; whole screen (more than 256 lines, at least)
 
 restart:
 mov x, isr        side 0b01 [1] ; BSP rises 333 ns after GCK1 rises and charge X for this loop
@@ -58,7 +45,7 @@ nop               side 0b00 [3] ; fall BCK122 and hold for all of 122
 nop               side 0b10 [3] ; rise BCK123
 jmp y--, restart  side 0b00 [1] ; fall BCK124, reach middle, restart
 
-out y, 16         side 0b00     ; load next outer counter into y (16 bits is plenty)
+out y, 16         side 0b00     ; load next outer counter into y (16 bits is needed because 320 lines)
 .wrap
 
 

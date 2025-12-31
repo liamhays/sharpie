@@ -21,11 +21,10 @@ wait 1 irq prev 1       side 0 [6]  ; wait for INTB/GSP SM in previous PIO
 out x, 32               side 1 [15] ; get first skipped lines counter, rise GCK1,
                                     ; wait almost half of it
 nop                     side 1 [14] ; wait rest of GCK1
-jmp !x, initialchange   side 1
+jmp !x, initialchange   side 1      ; if we're starting immediately, we have to do GCK2 separately
 nop                     side 0 [15] ; fall GCK2 and wait for its first half
 nop                     side 0 [15] ; wait the rest of GCK2
 ; if we start with changed lines, we have to send data starting on GCK2
-
 
 .wrap_target
 nop                     side 1
@@ -38,11 +37,6 @@ irq set 2                side 0
 ; now flow seamlessly into changed lines loop
 
 ; note that we have a [14] because that flow is in fact seamless.
-
-; problem: irq set 2 here doesn't really work because it's setting the irq an entire
-; cycle too late (since we're piggybacking first GCK off of the final skip)
-; can we move the first skip rise to the top (beneath wrap) and then have the
-; final skip fall outside the loop?
 
 changedstart:
 nop                     side 0 [14]
@@ -66,8 +60,8 @@ out x, 32               side 1      ; get next skip counter (which will never be
 
 
 ; if the number provided is greater than 1 (2 skips), the first high skip pulse will
-; be 2 short cycles instead of one. this shouldn't matter at all, according to the
-; display spec, but it is worth noting.
+; be 2 short cycles instead of one. this doesn't affect the image, and it is not out
+; of spec, but it is worth noting.
 
 ; and go back to skips
 .wrap
@@ -80,7 +74,7 @@ initialchange:
 irq set 2                    side 0
 out x, 32                    side 0
 jmp changedloop_from_inject  side 0
-
+; this goes into the main loop, because the main loop can handle the rest of GCK2.
 
 
 % c-sdk {

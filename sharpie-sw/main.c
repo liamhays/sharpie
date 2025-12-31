@@ -10,6 +10,7 @@
 #include "sharpie-vertical.pio.h"
 #include "sharpie-gen.pio.h"
 #include "sharpie-horiz-data.pio.h"
+#include "sharpie-va-vb-vcom.pio.h"
 
 #include "sharpie-partial-gck.pio.h"
 #include "sharpie-partial-intb-gsp.pio.h"
@@ -132,6 +133,9 @@ uint partial_horiz_data_sm = 1;
 uint partial_gck_sm = 0;
 uint partial_gck_end_sm = 1;
 
+PIO intb_gsp_horiz_pio = pio1;
+PIO gck_gck_end_pio = pio2;
+
 
 //// Initialize partial update stuff for one specific, predefined partial update.
 #define SKIPS (200)
@@ -159,10 +163,11 @@ uint32_t gck_end_timeout = 2*32 + // 2 full GCK h/ls at start
 
 uint32_t gsp_high_timeout = 53;
 
-uint8_t partial_frame_pixels[CHANGES*240+120+4]; // +120 for final 1/2 line
+uint8_t partial_frame_pixels[CHANGES*240+120]; // +120 for final 1/2 line
 
-
-void init_partial_update_pios(PIO intb_gsp_horiz_pio, PIO gck_gck_end_pio) {
+/*void init_partial_update_frame(PIO intb_gsp_horiz_pio, PIO gck_gck_end_pio,
+			       uint32_t nskips, uint32_t nchanges, */
+void init_partial_update_pios() {
 
   uint intb_gsp_offset = pio_add_program(intb_gsp_horiz_pio, &sharpie_partial_intb_gsp_program);
   if (intb_gsp_offset < 0) {
@@ -218,7 +223,9 @@ void init_partial_update_pios(PIO intb_gsp_horiz_pio, PIO gck_gck_end_pio) {
   pio_sm_exec(intb_gsp_horiz_pio, partial_horiz_data_sm, pio_encode_out(pio_isr, 32));
   pio_sm_exec(intb_gsp_horiz_pio, partial_horiz_data_sm, pio_encode_mov(pio_x, pio_isr));
   // leaving an `out y, 8` instruction stalled in the main program and
-  // then pushing onto the FIFO definitely just absorbs that value.
+  // then pushing onto the FIFO definitely just absorbs that value, which
+  // is a problem because we need to be able to charge the horiz/data
+  // registers.
   // since we can't put instructions after the `wait irq`, we have to
   // load the first y loop counter manually. after this
   pio_sm_put(intb_gsp_horiz_pio, partial_horiz_data_sm, CHANGES*2); // 38 + 1 => 39, for final 1/2 line of zeros
@@ -247,29 +254,25 @@ void init_partial_update_pios(PIO intb_gsp_horiz_pio, PIO gck_gck_end_pio) {
 //
 // - The 5V on this board holds charge for a long time, and we don't
 //   have an easy way other than serial messages to tell the board to shut off.
-//   As a result, we're going to not do that.
+//   As a result, we're going to not do that. (fixed in sharpie rev2)
 //
 // - The first test will be the entire boot-up sequence, write the red image,
 //   hold for 60 seconds, then do the shut-off sequence. This will get us as
 //   close as possible to the prescribed usage pattern.
 
-// The problem was caused by the zeros DMA stream being improperly
-// configured to send 2x as many bytes as it is supposed to. The
-// waveforms show that the horizontal control pulses continue for one
-// GCK h/l after an entire frame, and one GCK h/l is one collection of
-// MSB or LSB bytes, or 120 bytes. We were sending 240 bytes.
+///////
+// You don't have to do the two black screens, they're optional (but
+// probably a good idea). You do still have to turn on VCOM/VB/VA at
+// the right time and leave enough time before you send data.
+
 void main() {
   // set up the system: initialize pins and PIO
   stdio_init_all();
 
   memset(partial_frame_pixels, 0, sizeof(partial_frame_pixels));
   memset(partial_frame_pixels, 0b001100, CHANGES*240);
-  /*uint32_t changed_lines_counter = CHANGES*2;
-  partial_frame_pixels[0] = changed_lines_counter & 0xff;
-  partial_frame_pixels[1] = (changed_lines_counter >> 8) & 0xff;
-  partial_frame_pixels[2] = (changed_lines_counter >> 16) & 0xff;
-  partial_frame_pixels[3] = (changed_lines_counter >> 24) & 0xff;*/
-  
+  uint32_t changed_lines_counter = CHANGES*2;
+
   
   /*while (!stdio_usb_connected()) {
     sleep_ms(50);
@@ -298,16 +301,6 @@ void main() {
   gpio_init(led_pin);
   gpio_set_dir(led_pin, GPIO_OUT);
 
-  gpio_init(va_pin);
-  gpio_set_dir(va_pin, GPIO_OUT);
-
-  gpio_init(vb_vcom_pin);
-  gpio_set_dir(vb_vcom_pin, GPIO_OUT);
-
-  // enable PWM wrap irq
-  irq_set_exclusive_handler(PWM_IRQ_WRAP_0, pwm_wrap_interrupt);
-  irq_set_enabled(PWM_IRQ_WRAP_0, true);
-  
   // system clock is 150 MHz by default on RP2350, and all the
   // clock divider values configured in the PIO sources are tuned
   // for that speed
@@ -343,7 +336,6 @@ void main() {
 
   // transmit black screen
   //
-  // this is pixel memory initialization, it's probably optional.
   //pio0->irq_force = 0b1;
 
   // wait for the frame to transmit (INTB max time is 57.47 ms, plus
@@ -351,42 +343,43 @@ void main() {
   sleep_ms(60);
   printf("transmitted first black screen\n");
 
-  // wait mandated 30μs (this is already taken care of but the difference shouldn't matter)
+  // wait mandated 30μs (this is already taken care of but the
+  // difference shouldn't matter)
   sleep_us(30);
 
-  // configure VCOM, VB, VA
-  // these are 60Hz signals, and VB and VCOM are the same signal
-  //
-  // the system clock runs at 150 MHz and we have an 8.4 divider
-  //
-  // let's use a divider of 200 to yield a 750 kHz signal.
-  //
-  // We can't use PWM to make these signals because the pins are on
-  // the same slice, so the signals can't be out of phase.
-  // We can use the PWM as a timer though.
-
-  // these are on slice 6
+  // configure VCOM, VB, VA these are 60Hz signals, and VB and VCOM
+  // are the same signal, with VA 180 degrees out of phase from
+  // VB/VCOM.
 
   // clock math:
-  // 150MHz sysclk -> [divider: /200] -> 750kHz PWM clk ->
-  // 6250-cycle wrapper -> 60Hz signal
-  pwm_slice = pwm_gpio_to_slice_num(12); // channel 6A
+  // 150MHz sysclk -> [divider: /250] -> 750kHz PWM clk ->
+  // 10000-cycle wrapper -> halfway level markers for
+  // 50% duty -> 60Hz signal
 
-  // I need to check the VCOM frequency with a scope, but as far as I
-  // can tell it doesn't change the appearence of the image.
-  pwm_config cfg = pwm_get_default_config();
-  pwm_config_set_clkdiv_mode(&cfg, PWM_DIV_FREE_RUNNING);
-  pwm_config_set_clkdiv(&cfg, 200);
-  int wrap = 6250;
-  pwm_config_set_wrap(&cfg, wrap);
-  pwm_set_irq_enabled(pwm_slice, true); // interrupt generated on wrap
-  pwm_set_chan_level(pwm_slice, PWM_CHAN_A, wrap-1); // immediately fire the irq
-  pwm_init(pwm_slice, &cfg, true); // start now
+  // VA/(VB/VCOM) are convienently (unintentionally designed, but it
+  // worked out well) on the two outputs of slice 6
+  pwm_slice = pwm_gpio_to_slice_num(va_pin); // channel 6A (slice 6)
+
+  // using pwm_config doesn't seem to work
+  gpio_set_function(va_pin, GPIO_FUNC_PWM);
+  gpio_set_function(vb_vcom_pin, GPIO_FUNC_PWM);
+  pwm_set_clkdiv(pwm_slice, 250);
+  int wrap = 10000;
+  pwm_set_wrap(pwm_slice, wrap);
+  // VB/VCOM needs to start first, with VA 180 degrees out of phase,
+  // so we set the counter halfway so that the outputs are initially
+  // on. the second output is also inverted to make the phase shift.
+  pwm_set_counter(pwm_slice, wrap/2);
+  pwm_set_chan_level(pwm_slice, PWM_CHAN_A, wrap/2);
+  pwm_set_chan_level(pwm_slice, PWM_CHAN_B, wrap/2);
+  // invert output B (VB/VCOM)
+  pwm_set_output_polarity(pwm_slice, false, true);
+  pwm_set_enabled(pwm_slice, true);
 
   printf("VA/VB/VCOM running\n");
   // wait at least two VB/VCOM cycles (at 60 Hz one cycle is 16 ms)
   //
-  // they show at least 1.5 cycles before sending data
+  // Sharp shows at least 1.5 cycles before sending data
   sleep_ms(60);
 
   
@@ -441,14 +434,16 @@ void main() {
   sleep_ms(60);
 
   printf("waiting...\n");
-  
+
+  //pwm_set_enabled(pwm_slice, false);
+  //while(true);
   // wait a few seconds and then send partial update
   sleep_ms(5000);
 
   // GPIO pins can only be mapped to one PIO at a time, so we have
   // to swap between PIOs.
   
-  init_partial_update_pios(pio1, pio2);
+  init_partial_update_pios();
   
   int gck_dma_channel = dma_claim_unused_channel(true);
   if (gck_dma_channel < 0) {
@@ -467,9 +462,9 @@ void main() {
   channel_config_set_read_increment(&partial_gck_c, true);
   channel_config_set_write_increment(&partial_gck_c, false);
   channel_config_set_transfer_data_size(&partial_gck_c, DMA_SIZE_32); // we use the WHOLE width of the FIFO entry
-  channel_config_set_dreq(&partial_gck_c, pio_get_dreq(pio2, partial_gck_sm, true)); // true for sending data to the SM
+  channel_config_set_dreq(&partial_gck_c, pio_get_dreq(gck_gck_end_pio, partial_gck_sm, true)); // true for sending data to the SM
   dma_channel_configure(gck_dma_channel, &partial_gck_c,
-			&pio2->txf[partial_gck_sm],
+			&gck_gck_end_pio->txf[partial_gck_sm],
 			gck_control_data,
 			3,
 			true);
@@ -480,11 +475,11 @@ void main() {
   // we found originally that transfers have to be 32 bits, for some
   // reason, and that still holds true for slightly modified horiz/data.
   channel_config_set_transfer_data_size(&partial_data_c, DMA_SIZE_32);
-  channel_config_set_dreq(&partial_data_c, pio_get_dreq(pio1, partial_horiz_data_sm, true));
+  channel_config_set_dreq(&partial_data_c, pio_get_dreq(intb_gsp_horiz_pio, partial_horiz_data_sm, true));
   dma_channel_configure(pixel_data_dma_channel, &partial_data_c,
-			&pio1->txf[partial_horiz_data_sm],
+			&intb_gsp_horiz_pio->txf[partial_horiz_data_sm],
 			partial_frame_pixels,
-			19*60+30, // +30 for the final 1/2 line
+			CHANGES*60+30, // +30 for the final 1/2 line
 			true);
 
 
