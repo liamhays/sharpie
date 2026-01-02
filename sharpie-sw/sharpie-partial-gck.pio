@@ -47,7 +47,7 @@ nop                     side 1 [7]
 set pins, 1             side 1 [15] ; rise GEN and wait rest of this GCK half
 set pins, 0             side 1 [7]  ; fall GEN
 
-nop                     side 0 [1]  ; fall GCK
+nop                     side 0 [2]  ; fall GCK
 changedloop_from_inject:
 nop                     side 0 [4]
 set pins, 1             side 0 [15] ; rise GEN, wait

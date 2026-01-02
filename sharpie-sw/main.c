@@ -10,7 +10,6 @@
 #include "sharpie-vertical.pio.h"
 #include "sharpie-gen.pio.h"
 #include "sharpie-horiz-data.pio.h"
-#include "sharpie-va-vb-vcom.pio.h"
 
 #include "sharpie-partial-gck.pio.h"
 #include "sharpie-partial-intb-gsp.pio.h"
@@ -144,11 +143,14 @@ PIO gck_gck_end_pio = pio2;
 // our objective is to send a partial frame consisting of 20 white
 // lines starting at zero-indexed line 99.
 
-// GCK control needs -1 for the counter to work correctly.
+// GCK control needs -1 for the counter to work correctly, unless
+// you're telling the GCK SM how many lines to change at the very
+// start of the image (first control value is 0). In this case you
+// should just put the number of changed lines in the data array.
 uint32_t gck_control_data[] = {SKIPS - 1, // skip 99 lines
 			       CHANGES - 1, // send 19 lines of data
 			       (320-SKIPS-CHANGES) - 1}; // skip the rest
-//{0, CHANGES - 1, 320 - CHANGES - 1};
+  //{0, CHANGES, 320 - CHANGES - 1};
 
 // number of 1/32 GCK h/ls to wait until the GCK end SM activates
 uint32_t gck_end_timeout = 2*32 + // 2 full GCK h/ls at start
@@ -156,17 +158,15 @@ uint32_t gck_end_timeout = 2*32 + // 2 full GCK h/ls at start
   (CHANGES*2 + 1)*32 + // 19 changed lines (add 1 extra h/l for the way GCK works)
   (319-SKIPS-CHANGES)*2 + 1; // first skip after changed is 2x as long, but
                      // the initial 2*32 includes the first line, so we use 319, not 320
-			    
-  /*2*32 +
+/*			    
+  2*32 +
   (CHANGES*2 + 1)*32 +
-  (319 - CHANGES)*2 + 1;*/
-
+  (319 - CHANGES)*2 + 1;
+*/
 uint32_t gsp_high_timeout = 53;
 
 uint8_t partial_frame_pixels[CHANGES*240+120]; // +120 for final 1/2 line
 
-/*void init_partial_update_frame(PIO intb_gsp_horiz_pio, PIO gck_gck_end_pio,
-			       uint32_t nskips, uint32_t nchanges, */
 void init_partial_update_pios() {
 
   uint intb_gsp_offset = pio_add_program(intb_gsp_horiz_pio, &sharpie_partial_intb_gsp_program);
@@ -266,6 +266,8 @@ void init_partial_update_pios() {
 // the right time and leave enough time before you send data.
 
 void main() {
+  // should be default 150 MHz, but just in case
+  set_sys_clock_khz(150000, true);
   // set up the system: initialize pins and PIO
   stdio_init_all();
 
@@ -273,7 +275,7 @@ void main() {
   memset(partial_frame_pixels, 0b001100, CHANGES*240);
   uint32_t changed_lines_counter = CHANGES*2;
 
-  
+
   /*while (!stdio_usb_connected()) {
     sleep_ms(50);
     }*/
