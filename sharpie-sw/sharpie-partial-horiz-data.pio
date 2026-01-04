@@ -16,6 +16,10 @@
 ;
 ; ISR must also be charged to 59 before this state machine ever starts running
 
+out isr, 32       side 0b00 ; get the inner loop counter and make ISR backup
+mov x, isr        side 0b00 ; copy it to x
+out y, 32         side 0b00 ; put first changed lines (times 2) counter in y
+
 .wrap_target
 
 ; wait for GCK rise from PIO 1
@@ -45,7 +49,7 @@ nop               side 0b00 [3] ; fall BCK122 and hold for all of 122
 nop               side 0b10 [3] ; rise BCK123
 jmp y--, restart  side 0b00 [1] ; fall BCK124, reach middle, restart
 
-out y, 16         side 0b00     ; load next outer counter into y (16 bits is needed because 320 lines)
+out y, 32         side 0b00     ; load next outer counter into y
 .wrap
 
 

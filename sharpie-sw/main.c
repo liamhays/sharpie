@@ -1,3 +1,11 @@
+// There's not very much code in this file, because a lot of the
+// display signal complexity is taken care of in the state
+// machines. That means, however, that what's in this file is actually
+// quite abstract, so I recommend that you get yourself a good
+// understanding of how this display works and how my code works
+// before you try to modify it. See the Sharpie GitHub repository for
+// more information.
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,21 +33,15 @@ const int five_volt_en = 16;
 const int va_pin = 12;
 const int vb_vcom_pin = 13;
 
-uint va_vb_vcom_tracker = 1;
+
 uint pwm_slice;
 
 uint32_t global_32bit_zero = 0;
 
-uint8_t red_framebuffer[320][240];
-
-uint8_t* red_framebuffer_1d = (uint8_t*)red_framebuffer;
-
-uint8_t black_framebuffer[320][240];
-uint8_t* black_framebuffer_1d = (uint8_t*)black_framebuffer;
-
-uint32_t global_32bit_max = 0b111111;
 
 void error_handler() {
+  // super basic error loop that works even when a serial terminal
+  // isn't connected
   while (1) {
     gpio_put(led_pin, 1);
     sleep_ms(500);
@@ -48,83 +50,11 @@ void error_handler() {
   }
 }
 
-//PIO pio = pio0;
+
+
 uint vertical_sm = 0;
 uint gen_sm = 1;
 uint horiz_data_sm = 2;
-
-uint vertical_offset = 0;
-uint gen_offset = 0;
-uint horiz_data_offset = 0;
-
-void add_pio_programs(PIO pio) {
-  vertical_offset = pio_add_program(pio, &sharpie_vertical_program);
-  if (vertical_offset < 0) {
-    printf("failed to add sharpie_vertical_program\n");
-    error_handler();
-  }
-  
-  // init GEN state machine
-  gen_offset = pio_add_program(pio, &sharpie_gen_program);
-  if (gen_offset < 0) {
-    printf("failed to add sharpie_gen_program\n");
-    error_handler();
-  }
-  
-  
-  // init horiz/data state machine
-  horiz_data_offset = pio_add_program(pio, &sharpie_horiz_data_program);
-  if (horiz_data_offset < 0) {
-    printf("failed to add sharpie_horiz_data_program\n");
-    error_handler();
-  }
-
-}
-
-void restart_state_machines(PIO pio) {
-  // init all three state machines
-
-  // INTB on 0, GSP on 1, GCK on 2
-  sharpie_vertical_pio_init(pio, vertical_sm, vertical_offset, 0);
-  // GEN on pin 3, start state machine
-  sharpie_gen_pio_init(pio, gen_sm, gen_offset, 3);
-  // BSP on pin 4, BCK on pin 5, data from pin 6 to 11 inclusive
-  sharpie_horiz_data_pio_init(pio, horiz_data_sm, horiz_data_offset, 4, 6);
-  
-  // charge the vertical state machine, it's waiting for irq 0
-  // the number you put in its FIFO is the number of times the loop
-  // will run, minus 1
-  pio_sm_put(pio, vertical_sm, 321); // run 321 times for 648 h/l total
-  
-  // GEN: run 5 times (counter value + 1)
-  pio_sm_put(pio, gen_sm, 639); // this should be 639 for 640 high pulses
-  pio_sm_exec(pio, gen_sm, pio_encode_pull(false, false)); // just a basic pull
-  pio_sm_exec(pio, gen_sm, pio_encode_mov(pio_x, pio_osr)); // mov x, osr
-  // GEN counter is now charged
-  
-  // horiz-data: charge X, make a backup in ISR (unused by any other part of the code)
-  pio_sm_put(pio, horiz_data_sm, 59); // we'll get a total of 2(x+1)+4 h/l so this should be 59 => 2(59+1)+4 = 124
-  pio_sm_exec(pio, horiz_data_sm, pio_encode_pull(false, false));  // pull
-  pio_sm_exec(pio, horiz_data_sm, pio_encode_out(pio_isr, 32)); // out isr, 32 (make backup of counter value and clear OSR for autopull)
-  pio_sm_exec(pio, horiz_data_sm, pio_encode_mov(pio_x, pio_isr)); // mov x, isr (load X with counter)
-  // charge Y for total loop counter
-  pio_sm_put(pio, horiz_data_sm, 640); // should be 640 for 641 loops (see 6-3-2, the last loop has data all zeros, which is why we have a chained DMA channel below)
-  pio_sm_exec(pio, horiz_data_sm, pio_encode_pull(false, false)); // pull
-  pio_sm_exec(pio, horiz_data_sm, pio_encode_out(pio_y, 32)); // out y, 32 (also clears OSR)
-  
-}
-
-void pwm_wrap_interrupt() {
-  pwm_clear_irq(pwm_slice);
-  gpio_put(va_pin, va_vb_vcom_tracker);
-  gpio_put(vb_vcom_pin, !va_vb_vcom_tracker);
-
-  if (va_vb_vcom_tracker == 0) {
-    va_vb_vcom_tracker = 1;
-  } else {
-    va_vb_vcom_tracker = 0;
-  }
-}
 
 uint partial_intb_gsp_sm = 0;
 uint partial_horiz_data_sm = 1;
@@ -132,43 +62,159 @@ uint partial_horiz_data_sm = 1;
 uint partial_gck_sm = 0;
 uint partial_gck_end_sm = 1;
 
+PIO full_frame_pio = pio0;
 PIO intb_gsp_horiz_pio = pio1;
 PIO gck_gck_end_pio = pio2;
 
 
-//// Initialize partial update stuff for one specific, predefined partial update.
+// "full frame" is not the best name for this, but it works. the full
+// frame PIO sends a complete frame instead of a set of partial update
+// regions.
+void init_full_frame_pio() {
+  // add programs for the full-frame (no partial update) PIO
+  uint vertical_offset = pio_add_program(full_frame_pio, &sharpie_vertical_program);
+  if (vertical_offset < 0) {
+    printf("failed to add sharpie_vertical_program\n");
+    error_handler();
+  }
+  
+  // init GEN state machine
+  uint gen_offset = pio_add_program(full_frame_pio, &sharpie_gen_program);
+  if (gen_offset < 0) {
+    printf("failed to add sharpie_gen_program\n");
+    error_handler();
+  }
+  
+  
+  // init horiz/data state machine
+  uint horiz_data_offset = pio_add_program(full_frame_pio,
+					   &sharpie_horiz_data_program);
+  if (horiz_data_offset < 0) {
+    printf("failed to add sharpie_horiz_data_program\n");
+    error_handler();
+  }
+
+  // init all three state machines
+
+  // INTB on 0, GSP on 1, GCK on 2
+  sharpie_vertical_pio_init(full_frame_pio, vertical_sm, vertical_offset, 0);
+  // GEN on pin 3, start state machine
+  sharpie_gen_pio_init(full_frame_pio, gen_sm, gen_offset, 3);
+  // BSP on pin 4, BCK on pin 5, data from pin 6 to 11 inclusive
+  sharpie_horiz_data_pio_init(full_frame_pio, horiz_data_sm, horiz_data_offset, 4, 6);
+  
+  // charge the vertical state machine, it's waiting for irq 0
+  // the number you put in its FIFO is the number of times the loop
+  // will run, minus 1
+  pio_sm_put(full_frame_pio, vertical_sm, 321); // run 321 times for 648 h/l total
+  
+  // GEN: run 5 times (counter value + 1)
+  pio_sm_put(full_frame_pio, gen_sm, 639); // this should be 639 for 640 high pulses
+  pio_sm_exec(full_frame_pio, gen_sm, pio_encode_pull(false, false)); // just a basic pull
+  pio_sm_exec(full_frame_pio, gen_sm, pio_encode_mov(pio_x, pio_osr)); // mov x, osr
+  // GEN counter is now charged
+  
+  // horiz-data: charge X, make a backup in ISR (unused by any other part of the code)
+  pio_sm_put(full_frame_pio, horiz_data_sm, 59); // we'll get a total of 2(x+1)+4 h/l so this should be 59 => 2(59+1)+4 = 124
+  pio_sm_exec(full_frame_pio, horiz_data_sm, pio_encode_pull(false, false));  // pull
+  pio_sm_exec(full_frame_pio, horiz_data_sm, pio_encode_out(pio_isr, 32)); // out isr, 32 (make backup of counter value and clear OSR for autopull)
+  pio_sm_exec(full_frame_pio, horiz_data_sm, pio_encode_mov(pio_x, pio_isr)); // mov x, isr (load X with counter)
+  // charge Y for total loop counter
+  pio_sm_put(full_frame_pio, horiz_data_sm, 640); // should be 640 for 641 loops (see 6-3-2, the last loop has data all zeros, which is why we have a chained DMA channel below)
+  pio_sm_exec(full_frame_pio, horiz_data_sm, pio_encode_pull(false, false)); // pull
+  pio_sm_exec(full_frame_pio, horiz_data_sm, pio_encode_out(pio_y, 32)); // out y, 32 (also clears OSR)
+
+  // restart all state machine clocks
+  pio_clkdiv_restart_sm_mask(full_frame_pio, 0b111); // restart state machines
+  
+}
+
+
+// The following macros and variables are predefined examples for
+// different kinds of partial updates. The first (no numeric suffix on
+// the variable names) skips SKIPS lines, then updates CHANGES
+// lines. The second (suffix 2) skips SKIPS lines, updates CHANGES
+// lines, skips SKIPS2 lines, then updates CHANGES2 lines. Finally,
+// the third group of variables updates CHANGES lines at the very top
+// of the screen, then skips SKIPS lines, then updates CHANGES2 lines.
+//
+// The data DMAed into the horiz/data state machine doesn't need to
+// change for these, but if the stream is left incomplete after the
+// end of the frame, you have to reset it and possibly the SM as
+// well. The data stream is initialized in main().
+
 #define SKIPS (200)
 #define CHANGES (19)
+#define SKIPS2 (20)
+#define CHANGES2 (5)
 
-// our objective is to send a partial frame consisting of 20 white
-// lines starting at zero-indexed line 99.
 
-// GCK control needs -1 for the counter to work correctly, unless
-// you're telling the GCK SM how many lines to change at the very
-// start of the image (first control value is 0). In this case you
-// should just put the number of changed lines in the data array.
-uint32_t gck_control_data[] = {SKIPS - 1, // skip 99 lines
-			       CHANGES - 1, // send 19 lines of data
+
+// GCK control needs -1 for the counter to work correctly in all
+// circumstances, due to how the loops in the state machines work.
+uint32_t gck_control_data[] = {SKIPS - 1,
+			       CHANGES - 1,
 			       (320-SKIPS-CHANGES) - 1}; // skip the rest
-  //{0, CHANGES, 320 - CHANGES - 1};
 
 // number of 1/32 GCK h/ls to wait until the GCK end SM activates
 uint32_t gck_end_timeout = 2*32 + // 2 full GCK h/ls at start
-  SKIPS*2 + // 99 skipped lines, short GCK h/ls
+  SKIPS*2 + // short GCK h/ls
   (CHANGES*2 + 1)*32 + // 19 changed lines (add 1 extra h/l for the way GCK works)
   (319-SKIPS-CHANGES)*2 + 1; // first skip after changed is 2x as long, but
-                     // the initial 2*32 includes the first line, so we use 319, not 320
-/*			    
-  2*32 +
-  (CHANGES*2 + 1)*32 +
-  (319 - CHANGES)*2 + 1;
-*/
-uint32_t gsp_high_timeout = 53;
+// the initial 2*32 includes the first line, so we use 319, not 320
 
-uint8_t partial_frame_pixels[CHANGES*240+120]; // +120 for final 1/2 line
 
+
+// just like before
+uint32_t gck_control_data2[] = {SKIPS - 1,
+				CHANGES - 1,
+				SKIPS2 - 1,
+				CHANGES2 - 1,
+				(320 - SKIPS - CHANGES - SKIPS2 - CHANGES2) - 1};
+
+// also just like before
+uint32_t gck_end_timeout2 = 2*32 +
+			    SKIPS*2 +
+			    (CHANGES*2 + 1)*32 +
+			    SKIPS2*2 +
+			    (CHANGES2*2 + 1)*32 +
+			    (319 - SKIPS - CHANGES - SKIPS2 - CHANGES2)*2 + 1;
+
+
+// 0 at the start of a GCK control data block tells the SM to start
+// sending changed lines beginning with the first line on the display,
+// instead of skipping some quantity.
+uint32_t gck_control_data3[] = {0,
+				CHANGES - 1,
+				SKIPS - 1,
+				CHANGES2 - 1,
+				(320 - SKIPS - CHANGES - SKIPS2 - CHANGES2) - 1};
+
+// When the changes start at the top of the screen, they start on
+// GCK2, so we have to open this with 1*32 instead of 2*32.
+uint32_t gck_end_timeout3 = 1*32 + 
+			    (CHANGES*2 + 1) * 32 +
+			    SKIPS * 2 +
+			    (CHANGES2*2 + 1) * 32 +
+			    // we still use 319 because 1*32 includes the
+			    // first line.
+			    (319 - SKIPS - CHANGES - CHANGES2)*2 + 1; 
+
+
+// this value never changes
+const uint32_t gsp_high_timeout = 53;
+
+// note the +120 for final 1/2 line of zeros, which is used on the
+// extra GCK h/l during a changed section that we mentioned in the GCK
+// end timeouts above.
+// the +4s are for the 32-bit changed lines counters
+uint8_t partial_frame_pixels[4 + CHANGES*240+120 + 4 + CHANGES2*240+120];
+
+
+
+// partial display updates require two PIOs and a decent amount of configuration.
 void init_partial_update_pios() {
-
+  // add the programs
   uint intb_gsp_offset = pio_add_program(intb_gsp_horiz_pio, &sharpie_partial_intb_gsp_program);
   if (intb_gsp_offset < 0) {
     printf("failed to add partial_intb_gsp\n");
@@ -205,32 +251,36 @@ void init_partial_update_pios() {
   // BSP on pin 4, BCK on pin 5, data on pins 6-11
   sharpie_partial_horiz_data_pio_init(intb_gsp_horiz_pio, partial_horiz_data_sm, horiz_data_offset, 4, 6);
   
-  // push a value for how long the INTB/GSP SM should leave GSP high (this is
-  // always the same, but it's too big for a set instruction)
+  // push a value for how long the INTB/GSP SM should leave GSP
+  // high. this value is a constant, but it's bigger than 5 bits so we
+  // can't use a `set` instruction in the state machine.
   pio_sm_put(intb_gsp_horiz_pio, partial_intb_gsp_sm, gsp_high_timeout);
-  // prepare GCK end SM for irq 1 countdown
-  pio_sm_put(gck_gck_end_pio, partial_gck_end_sm, gck_end_timeout);
-  // put two more values (the exact value of each doesn't matter) on the
-  // stack so that the wrap repeats 3 times total
-  pio_sm_put(gck_gck_end_pio, partial_gck_end_sm, 3);
-  pio_sm_put(gck_gck_end_pio, partial_gck_end_sm, 3);
-  // place the timeout counter in x
+  
+  // prepare GCK end SM by giving it the proper counter
+  // important! make sure this is correctly calculated, otherwise the
+  // signals at the end of the frame will be deformed
+  pio_sm_put(gck_gck_end_pio, partial_gck_end_sm, gck_end_timeout3);
+  
+  // put two zeros---the value doesn't matter but the number of
+  // numbers does---on the GCK end FIFO so that the wrap repeats 3
+  // times total (this facilitates a code-saving measure)
+  pio_sm_put(gck_gck_end_pio, partial_gck_end_sm, 0);
+  pio_sm_put(gck_gck_end_pio, partial_gck_end_sm, 0);
+  
+  // place the GCK end timeout counter in GCK end SM's x register
   pio_sm_exec(gck_gck_end_pio, partial_gck_end_sm, pio_encode_out(pio_x, 32));
 
   // charge horiz/data SM's inner loop counter
   // get the counter, put it in ISR (backup), then copy to x
+  // this will be used repeatedly throughout a frame (and
+  // this is also exactly how the full-frame PIO works)
   pio_sm_put(intb_gsp_horiz_pio, partial_horiz_data_sm, 59);
-  pio_sm_exec(intb_gsp_horiz_pio, partial_horiz_data_sm, pio_encode_out(pio_isr, 32));
-  pio_sm_exec(intb_gsp_horiz_pio, partial_horiz_data_sm, pio_encode_mov(pio_x, pio_isr));
-  // leaving an `out y, 8` instruction stalled in the main program and
-  // then pushing onto the FIFO definitely just absorbs that value, which
-  // is a problem because we need to be able to charge the horiz/data
-  // registers.
-  // since we can't put instructions after the `wait irq`, we have to
-  // load the first y loop counter manually. after this
-  pio_sm_put(intb_gsp_horiz_pio, partial_horiz_data_sm, CHANGES*2); // 38 + 1 => 39, for final 1/2 line of zeros
-  pio_sm_exec(intb_gsp_horiz_pio, partial_horiz_data_sm, pio_encode_out(pio_y, 16)); // 16 bit!
-
+  // we don't need to force any instructions into the PIO here like we
+  // do with the full-frame program, because there's enough
+  // instruction space left in the INTB/GSP/horiz/data PIO for the
+  // `out`s and `mov` that charge registers appropriately. that also
+  // means that the first changed lines counter for horiz/data can go
+  // in the DMA stream.
 
   pio_clkdiv_restart_sm_mask(intb_gsp_horiz_pio, 0b1111);
   pio_clkdiv_restart_sm_mask(gck_gck_end_pio, 0b1111);
@@ -261,41 +311,54 @@ void init_partial_update_pios() {
 //   close as possible to the prescribed usage pattern.
 
 ///////
-// You don't have to do the two black screens, they're optional (but
-// probably a good idea). You do still have to turn on VCOM/VB/VA at
-// the right time and leave enough time before you send data.
+// Here's the thing: you don't have to do the two black screens,
+// they're optional (but probably a good idea). You do still have to
+// turn on VCOM/VB/VA at the right time and leave enough time before
+// you send data. The code in main() below is a trimmed, simplified
+// version of the list of steps above, that displays a full-frame
+// image, then updates regions of it.
+
 
 void main() {
-  // should be default 150 MHz, but just in case
+  // on RP2350, which this code requires, the default should be 150
+  // MHz, but we set it just in case. all the SMs depend on a 150 MHz
+  // clock, but their dividers are mostly nice numbers, so it
+  // shouldn't be hard to recalculate. the biggest source of issues is
+  // probably the 387.5 divider on most of the partial update SMs.
   set_sys_clock_khz(150000, true);
-  // set up the system: initialize pins and PIO
+
   stdio_init_all();
 
+  // initialize the data to be sent to the horiz/data SM
+  //
+  // start by setting the whole buffer to zero, which is necessary for
+  // the end-of-changed-region half-lines that have to have the data
+  // lines at zero
   memset(partial_frame_pixels, 0, sizeof(partial_frame_pixels));
-  memset(partial_frame_pixels, 0b001100, CHANGES*240);
-  uint32_t changed_lines_counter = CHANGES*2;
 
+  // these individual statements are a poor man's 32-bit =>
+  // little-endian 8-bit conversion for the first changed lines
+  // counter. even though 9 bits is enough to cover the 320-line
+  // screen, the DMA transfers 32 bits at a time, so the counter must
+  // be 32 bits.
+  partial_frame_pixels[0] = (CHANGES)*2; // *2 for 2x per line
+  partial_frame_pixels[1] = 0;
+  partial_frame_pixels[2] = 0;
+  partial_frame_pixels[3] = 0;
 
-  /*while (!stdio_usb_connected()) {
-    sleep_ms(50);
-    }*/
+  size_t offset = 4;
   
+  // the first changed lines region is a block of green pixels
+  memset(&partial_frame_pixels[4], 0b001100, CHANGES*240);
 
-  // red framebuffer gets white, actually, because we are more confident
-  // in what white looks like than in what anything else looks like
-  memset(red_framebuffer_1d, 0b110000, 320*240);
-
-  // stuck bit tests
-  /*for (uint32_t i = 0; i < 320; i++) {
-    // set all pixels' red LSb to 1
-    for (uint32_t j = 0; j < 120; j++) {
-      red_framebuffer[i][j] = 0b000000;
-    }
-    for (uint32_t j = 120; j < 240; j++) {
-      red_framebuffer[i][j] = 0b000001;
-    }
-    }*/
-  memset(black_framebuffer_1d, 0, 320*240);
+  offset += CHANGES*240 + 120;
+  
+  // repeat for the next changed lines counter
+  partial_frame_pixels[offset] = (CHANGES2)*2;
+  partial_frame_pixels[offset + 1] = 0;
+  partial_frame_pixels[offset + 2] = 0;
+  partial_frame_pixels[offset + 3] = 0;
+  memset(&partial_frame_pixels[offset + 4], 0b110000, CHANGES2*240);
   
   gpio_init(five_volt_en);
   gpio_set_dir(five_volt_en, GPIO_OUT);
@@ -303,24 +366,9 @@ void main() {
   gpio_init(led_pin);
   gpio_set_dir(led_pin, GPIO_OUT);
 
-  // system clock is 150 MHz by default on RP2350, and all the
-  // clock divider values configured in the PIO sources are tuned
-  // for that speed
-
-  add_pio_programs(pio0);
-  restart_state_machines(pio0);
-
   
-  // we found that the initial blank screen isn't necessary.
-
-
-  // restart all state machine clocks
-  pio_clkdiv_restart_sm_mask(pio0, 0b111); // restart state machines
-  
-
-
-  /*******************************************/
-  // The system is now ready to actually do screen stuff.
+  /////////////////////////////////////////////
+  // Now we can manipulate the display.
   /////////////////////////////////////////////
 
   // 3.2V is already up.
@@ -336,14 +384,14 @@ void main() {
   // GCK is not exactly the typical value in the datasheet)
   sleep_ms(1);
 
-  // transmit black screen
+  // transmit black screen (this isn't necessary so we don't actually do it)
   //
   //pio0->irq_force = 0b1;
 
   // wait for the frame to transmit (INTB max time is 57.47 ms, plus
   // min 163.68 μs between fall and next rise)
   sleep_ms(60);
-  printf("transmitted first black screen\n");
+  //printf("transmitted first black screen\n");
 
   // wait mandated 30μs (this is already taken care of but the
   // difference shouldn't matter)
@@ -381,13 +429,12 @@ void main() {
   printf("VA/VB/VCOM running\n");
   // wait at least two VB/VCOM cycles (at 60 Hz one cycle is 16 ms)
   //
-  // Sharp shows at least 1.5 cycles before sending data
+  // Datasheet shows at least 1.5 cycles before sending data
   sleep_ms(60);
 
   
-  // send red screen
-  restart_state_machines(pio0);
-  pio_clkdiv_restart_sm_mask(pio0, 0b111);
+  // send full-frame image
+  init_full_frame_pio();
   
   int image_pixels_channel = dma_claim_unused_channel(true); // true -> required
   if (image_pixels_channel < 0) {
@@ -400,15 +447,19 @@ void main() {
     printf("failed to claim red dma zero channel\n");
     error_handler();
   }
-  
+
+  // this DMA stream sends the image, and chains to `image_zero_c`,
+  // which sends 120 bytes of zeros to close out the image. a change
+  // to make in the future is to include these zeros in the image
+  // buffer, so a second stream isn't necessary.
   dma_channel_config image_c = dma_channel_get_default_config(image_pixels_channel);
   channel_config_set_read_increment(&image_c, true); // increment reads
   channel_config_set_write_increment(&image_c, false); // no increment writes (into the FIFO)
   channel_config_set_transfer_data_size(&image_c, DMA_SIZE_32); // four byte transfers (one byte doesn't work)
-  channel_config_set_dreq(&image_c, pio_get_dreq(pio0, horiz_data_sm, true)); // true for sending data to SM
+  channel_config_set_dreq(&image_c, pio_get_dreq(full_frame_pio, horiz_data_sm, true)); // true for sending data to SM
   channel_config_set_chain_to(&image_c, image_pixels_zero_channel); // chain to zero channel to start zero channel when this finishes
   dma_channel_configure(image_pixels_channel, &image_c,
-			&pio0->txf[horiz_data_sm], // destination (TX FIFO of SM 2)
+			&full_frame_pio->txf[horiz_data_sm], // destination (TX FIFO of SM 2)
 		        pencils, // source 
 			19200, // transfer size = 320*240/4 = 19200
 			true); // start now
@@ -419,31 +470,30 @@ void main() {
   channel_config_set_read_increment(&image_zero_c, false); // just send zeros
   channel_config_set_write_increment(&image_zero_c, false); // write into FIFO
   channel_config_set_transfer_data_size(&image_zero_c, DMA_SIZE_32);
-  channel_config_set_dreq(&image_zero_c, pio_get_dreq(pio0, horiz_data_sm, true));
+  channel_config_set_dreq(&image_zero_c, pio_get_dreq(full_frame_pio, horiz_data_sm, true));
   dma_channel_configure(image_pixels_zero_channel, &image_zero_c,
-			&pio0->txf[horiz_data_sm],
+			&full_frame_pio->txf[horiz_data_sm],
 			&global_32bit_zero,
 			120/4,
 			false); // wait for chain start
 
 
   
-  // transmit red framebuffer
-  pio0->irq_force = 0b1;
+  // transmit image
+  full_frame_pio->irq_force = 0b1;
 
-  printf("send red framebuffer\n");
+  printf("send image\n");
   // wait for the frame to transmit
   sleep_ms(60);
 
   printf("waiting...\n");
 
-  //pwm_set_enabled(pwm_slice, false);
-  //while(true);
   // wait a few seconds and then send partial update
-  sleep_ms(5000);
+  sleep_ms(2000);
 
-  // GPIO pins can only be mapped to one PIO at a time, so we have
-  // to swap between PIOs.
+  // GPIO pins can only be mapped to one PIO at a time, so now we have
+  // to init the partial update PIOs and let them take over the GPIO
+  // pins.
   
   init_partial_update_pios();
   
@@ -453,13 +503,13 @@ void main() {
     error_handler();
   }
 
-  // then the data stream
   int pixel_data_dma_channel = dma_claim_unused_channel(true);
   if (pixel_data_dma_channel < 0) {
     printf("failed to claim partial pixel data DMA channel\n");
     error_handler();
   }
 
+  // this is the GCK control DMA stream
   dma_channel_config partial_gck_c = dma_channel_get_default_config(gck_dma_channel);
   channel_config_set_read_increment(&partial_gck_c, true);
   channel_config_set_write_increment(&partial_gck_c, false);
@@ -467,10 +517,14 @@ void main() {
   channel_config_set_dreq(&partial_gck_c, pio_get_dreq(gck_gck_end_pio, partial_gck_sm, true)); // true for sending data to the SM
   dma_channel_configure(gck_dma_channel, &partial_gck_c,
 			&gck_gck_end_pio->txf[partial_gck_sm],
-			gck_control_data,
-			3,
+			// getting the number of transfers right would
+			// be much better done in a higher-level
+			// language with easy array size tracking
+			gck_control_data3,
+			5,
 			true);
 
+  // and this is the pixel data and changed lines counter for horiz/data DMA stream
   dma_channel_config partial_data_c = dma_channel_get_default_config(pixel_data_dma_channel);
   channel_config_set_read_increment(&partial_data_c, true);
   channel_config_set_write_increment(&partial_data_c, false);
@@ -481,15 +535,24 @@ void main() {
   dma_channel_configure(pixel_data_dma_channel, &partial_data_c,
 			&intb_gsp_horiz_pio->txf[partial_horiz_data_sm],
 			partial_frame_pixels,
-			CHANGES*60+30, // +30 for the final 1/2 line
+			1 + (CHANGES*60 + 30) + (CHANGES2*60 + 30) + 1,
 			true);
 
 
-  pio1->irq_force = 0b1;
-  
+  intb_gsp_horiz_pio->irq_force = 0b1;
+
+  // wait forever, holding the image on the screen
   while (true);
 
 
+
+  
+
+  // below here is deinitialization code following the datasheet. it's
+  // also optional (you can just pull the plug with no issues), but
+  // it's probably a good idea to turn of VA/VB/VCOM and shut down
+  // power supplies, etc.
+  
   // wait for frame to transmit
   sleep_ms(60);
 

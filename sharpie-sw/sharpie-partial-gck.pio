@@ -69,12 +69,13 @@ out x, 32               side 1      ; get next skip counter (which will never be
 
 ; if we start without any skips, we need a special code path.
 ; this has to do GCK2 here (or, in this case, start it) AND get
-; the first changed lines counter
+; the first changed lines counter. this code block must also complete
+; all of GCK2, because GCK2 cannot have a GEN pulse.
 initialchange:
-irq set 2                    side 0
-out x, 32                    side 0
-jmp changedloop_from_inject  side 0
-; this goes into the main loop, because the main loop can handle the rest of GCK2.
+irq set 2                    side 0 [15]
+out x, 32                    side 0 
+jmp changedloop              side 0 [14] ; next instruction will rise GCK
+; this goes into the main loop, because the main loop can the rest of the GCKs
 
 
 % c-sdk {
