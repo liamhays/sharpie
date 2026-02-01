@@ -6,3 +6,5 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.5.23", features = ["cargo", "derive"] }
 image = "0.25.8"
+glob = "0.3.3"
+rayon = "1.11.0"

@@ -1,37 +1,68 @@
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::fs;
 
 use image::{ImageReader, Pixel, Rgb, RgbImage};
+use image::imageops;
 use image::metadata::{Cicp};
 use clap::{Parser, Subcommand};
+use glob::glob;
+use rayon::prelude::*;
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Format an image to a raw Sharpie frame
     Format {
 	input: PathBuf,
 	output: PathBuf,
     },
+    
+    /// Unformat a raw Sharpie frame back to an image in a normal image format
     Unformat {
 	input: PathBuf,
 	output: PathBuf,
     },
-    GenLuts {
-	msb_output: PathBuf,
-	lsb_output: PathBuf,
-    },
+    
+    /// Unformat a raw Sharpie frame into u8 (6bpp color) binary data, in
+    /// normal framebuffer order
     UnformatRaw {
 	input: PathBuf,
 	output: PathBuf,
     },
+    
+    /// Floyd-Steinberg dither an image into another image
     Dither {
 	input: PathBuf,
 	output: PathBuf,
     },
+    
+    /// Floyd-Steinberg dither an image into a raw Sharpie frame
     DitherFormat {
 	input: PathBuf,
 	output: PathBuf,
-    }
+    },
+    
+    /// Convert all PNG images in a folder to PNGs dithered for use on
+    /// Sharpie in another folder, with the same filenames
+    DitherDir {
+        input_dir: PathBuf,
+        output_dir: PathBuf,
+    },
 
+    /// Rotate all PNG images in a folder 270 degrees in parallel.
+    RotateDir {
+        input_dir: PathBuf,
+        output_dir: PathBuf,
+    },
+
+    /// Take a directory of 4:3 aspect ratio PNGs of any size, then
+    /// rotate, resize, dither, and format them into the output
+    /// directory. Files will come out as the original filename plus
+    /// ".bin".
+    FullFormatDir {
+        input_dir: PathBuf,
+        output_dir: PathBuf,
+    },
+    
     
 }
 
@@ -83,7 +114,7 @@ fn two_pixels_to_msb_lsb(p1: u8, p2: u8) -> (u8, u8) {
 }
 
 
-fn format_image(img: RgbImage) -> [u8; 240*320] {
+fn format_image(img: &RgbImage) -> [u8; 240*320] {
     // formatted image buffer
     let mut formatted: [[u8; 240]; 320] = [[0; 240]; 320];
     for y in 0..320 {
@@ -188,8 +219,13 @@ fn color_2bit_to_8bit(color_2bit: u8) -> u8 {
 
 /// Returns the 2bpc (2 bits per color) equivalent of an Rgb pixel and
 /// the correctly scaled Rgb pixel that represents that 2bpp pixel.
-fn rgb8_to_2bpc_pixel(input_pixel: &[u8]) -> [u8; 3] {
+fn rgb8_to_2bpc_pixels(input_pixel: &[u8]) -> [u8; 3] {
     [input_pixel[0] >> 6, input_pixel[1] >> 6, input_pixel[2] >> 6]
+}
+
+/// Convert a Rgb pixel to a single u8 in 0bBBGGRR format
+fn rgb8_to_6bpp_pixel(input_pixel: &[u8]) -> u8 {
+    (input_pixel[0] >> 6) | ((input_pixel[1] >> 6) << 2) | ((input_pixel[2] >> 6) << 4)
 }
 
 
@@ -208,7 +244,7 @@ fn rgb8_quant_error(pixel: &[u8], difference: [i16; 3], quant_num: i16) -> Rgb<u
 /// Dither an image (specified in `input_file`) with Floyd-Steinberg
 /// dithering. This returns an RgbImage which can then be formatted or
 /// saved.
-fn floyd_steinberg_dither(input: RgbImage) -> RgbImage {
+fn floyd_steinberg_dither(input: &RgbImage) -> RgbImage {
     let mut img_buffer = input.clone();
 
     for y in 0..img_buffer.height() {
@@ -217,7 +253,7 @@ fn floyd_steinberg_dither(input: RgbImage) -> RgbImage {
 	    // it to 2bpc and calculate the quantization error.
 	    let oldpixel = img_buffer.get_pixel(x, y);
 	    let oldpixel_slice = oldpixel.channels();
-	    let newpixel_2bpc = rgb8_to_2bpc_pixel(oldpixel_slice);
+	    let newpixel_2bpc = rgb8_to_2bpc_pixels(oldpixel_slice);
 	    // make an 8bpc version of the new pixel to put back in
 	    // the original image, where we keep the initial state and
 	    // diffused error (which gets transformed into a dithered
@@ -277,24 +313,6 @@ fn floyd_steinberg_dither(input: RgbImage) -> RgbImage {
     }
 
     img_buffer
-}
-
-// Generate MSB and LSB LUTs and write them to raw files
-fn gen_luts(msb_output: PathBuf, lsb_output: PathBuf) {
-    // Generate a MSB lookup table for all possible pixels
-    let mut msb_lut: [u8; 4096] = [0; 4096];
-    let mut lsb_lut: [u8; 4096] = [0; 4096];
-    for i in 0..=0b111111 {
-	for j in 0..=0b111111 {
-	    // direct as u8 is fine, only six bits
-	    let v = two_pixels_to_msb_lsb(i as u8, j as u8);
-	    msb_lut[(i << 6) | j] = v.0;
-	    lsb_lut[(i << 6) | j] = v.1;
-	}
-    }
-
-    fs::write(msb_output, msb_lut).expect("Failed to write MSB LUT");
-    fs::write(lsb_output, lsb_lut).expect("Failed to write LSB LUT");
 }
 
 fn unformat_image_raw(input: PathBuf, output: PathBuf) {
@@ -367,13 +385,72 @@ fn load_240x320_image(input: PathBuf) -> RgbImage {
 
     img
 }
-	    
+
+
+// TODO: should we bother with dithering in grayscale? depends on how
+// it affects frame rate.
+
+/*fn grayframes(input: PathBuf, output: PathBuf) {
+    let p = Path::new(&input).join("*.png");
+    for entry in glob(p.to_str().unwrap()).expect("Failed to glob input frame files!") {
+        if let Ok(path) = entry {
+            println!("processing {:?}", path);
+            // guess what, we also want to use a linear transfer
+            // function for grayscale conversion
+            let img = load_240x320_image(path);
+            if img.width() != 240 && img.height() != 320 {
+	        panic!("Expected image size 240x320, got image size {}x{}",
+	            img.width(), img.height());
+            }
+
+            let gray_image = image::
+      
+            
+        }
+    }
+
+}*/
+
+fn full_format_dir(input_dir: PathBuf, output_dir: PathBuf) {
+    let p = Path::new(&input_dir).join("*.png");
+    glob(p.to_str().unwrap()).unwrap()
+        .par_bridge()
+        .map(|glob_entry| {
+            let input_path = glob_entry.unwrap();
+            let output_path = Path::new(&output_dir)
+                .join(input_path.file_name().unwrap()).with_added_extension("bin");
+            println!("processing {:?}", input_path);
+            let mut img = ImageReader::open(&input_path).expect("Failed to read image")
+	        .decode().expect("Failed to decode image");
+
+            
+            img.set_color_space(Cicp::SRGB_LINEAR).unwrap();
+            
+            if img.width() as f32 / img.height() as f32 != 4_f32 / 3_f32 {
+                panic!("Image {:?} is not 4:3 aspect ratio!", &input_path);
+            }
+            
+            // nearest neighbor is totally fine
+            let resized = img.resize(320, 240, imageops::FilterType::Nearest);
+
+            let rotated = resized.rotate270();
+
+            let rgb8_image = rotated.into_rgb8();
+            let dithered = floyd_steinberg_dither(&rgb8_image);
+            let formatted = format_image(&dithered);
+
+            fs::write(output_path, formatted).expect("Failed to write output file");
+        })
+        .count();
+}
+
+
 fn main() {
     let args = Args::parse();
     match args.command {
 	Commands::Format { input, output } => {
 	    let img = load_240x320_image(input);
-	    let formatted = format_image(img);
+	    let formatted = format_image(&img);
 	    
 	    fs::write(output, formatted).expect("Failed to write output file");
 	},
@@ -383,10 +460,6 @@ fn main() {
 	    unformatted.save(output).expect("Failed to write output file");
 	},
 	
-	Commands::GenLuts { msb_output, lsb_output } => {
-	    gen_luts(msb_output, lsb_output);
-	},
-	
 	Commands::UnformatRaw { input, output } => {
 	    unformat_image_raw(input, output);
 	},
@@ -394,15 +467,63 @@ fn main() {
 	Commands::Dither { input, output } => {
 	    let img = load_240x320_image(input);
 
-	    floyd_steinberg_dither(img).save(output).unwrap();
+	    floyd_steinberg_dither(&img).save(output).unwrap();
 	},
+
+        
+        Commands::DitherDir { input_dir, output_dir } => {
+            let p = Path::new(&input_dir).join("*.png");
+            // can't use par_iter() because "the system calls can't be
+            // truly parallel", but par_bridge() works.
+            // https://github.com/rayon-rs/rayon/issues/918
+            glob(p.to_str().unwrap())
+                .expect("Failed to glob input frame files!")
+                .par_bridge()
+                .map(|glob_entry| {
+                    let input_path = glob_entry.unwrap();
+                    let output_path = Path::new(&output_dir)
+                        .join(input_path.file_name().unwrap());
+                    println!("processing {:?} to {:?}", input_path, output_path);
+                    let img = load_240x320_image(input_path);
+                    floyd_steinberg_dither(&img).save(output_path).unwrap();
+                })
+                // generally accepted way to absorb the new iterator
+                // created by map()
+                .count();
+        },
+
+        Commands::RotateDir { input_dir, output_dir } => {
+            let p = Path::new(&input_dir).join("*.png");
+            // can't use par_iter() because "the system calls can't be
+            // truly parallel", but par_bridge() works.
+            // https://github.com/rayon-rs/rayon/issues/918
+            glob(p.to_str().unwrap())
+                .expect("Failed to glob input frame files!")
+                .par_bridge()
+                .map(|glob_entry| {
+                    let input_path = glob_entry.unwrap();
+                    let output_path = Path::new(&output_dir)
+                        .join(input_path.file_name().unwrap());
+                    let img = ImageReader::open(input_path).expect("Failed to read image")
+	                .decode().expect("Failed to decode image")
+                        .rotate270();
+                    img.save(output_path).unwrap();
+                })
+                .count();
+        },
+        
 	Commands::DitherFormat { input, output } => {
 	    let img = load_240x320_image(input);
 
-	    let dithered = floyd_steinberg_dither(img);
-	    let formatted = format_image(dithered);
+	    let dithered = floyd_steinberg_dither(&img);
+	    let formatted = format_image(&dithered);
 	    fs::write(output, formatted).expect("Failed to write output file");
-	}
+	},
+
+        Commands::FullFormatDir { input_dir, output_dir } => {
+            full_format_dir(input_dir, output_dir);
+        },
+
     };
     
 }
