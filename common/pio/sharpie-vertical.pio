@@ -1,0 +1,49 @@
+.pio_version 0
+
+.program sharpie_vertical
+.side_set 3
+
+; side-set: GCK, GSP, INTB
+; setting side-set pin is setting the pin mapped
+; by the least-significant bit of the side-set value
+
+.wrap_target
+
+wait 1 irq 0   side 0b000      ; wait for CPU to set PIO IRQ 0
+pull           side 0b001      ; rise INTB, pull counter (CPU put value in FIFO)
+mov x, osr     side 0b011 [1]  ; rise GSP one PIO cycle after INTB, then delay another cycle and move OSR to X
+nop            side 0b111 [3]  ; rise GCK1, wait all of GCK1, set IRQ 2 at GCK2 fall for horiz-data code
+irq set 2      side 0b011 [1]  ; fall GCK1, wait until halfway through GCK2
+irq set 1      side 0b001 [1]  ; fall GSP, wait until end of GCK2, set IRQ 1 at halfway through GCK2
+loop:
+jmp !x,exit    side 0b101 [3]  ; rise GCK3,4,etc, and leave the loop if the counter is zero (last iteration)
+jmp x--,loop   side 0b001 [3]  ; fall GCK3,4,etc and jump based on X 
+
+exit:
+nop            side 0b001      ; fall GCK645
+nop            side 0b000 [2]  ; fall INTB at 1/4 through GCK646 and hold rest of 646
+nop            side 0b100 [3]  ; rise GCK647 (or last)
+nop            side 0b000 [3]  ; fall GCK647
+
+.wrap
+
+% c-sdk {
+#include "hardware/gpio.h"
+static inline void sharpie_vertical_pio_init(PIO pio, uint sm, uint offset, uint intb_pin) {
+  pio_gpio_init(pio, intb_pin);
+  pio_gpio_init(pio, intb_pin + 1);
+  pio_gpio_init(pio, intb_pin + 2);
+
+  pio_sm_set_consecutive_pindirs(pio, sm, intb_pin, 3, true); // set all pins output
+  
+  pio_sm_config c = sharpie_vertical_program_get_default_config(offset);
+
+  // set side-set pins starting from intb_pin
+  sm_config_set_sideset_pins(&c, intb_pin);
+  sm_config_set_clkdiv(&c, 3100); // 150 MHz / 3100
+
+  pio_sm_init(pio, sm, offset, &c);
+  pio_sm_set_enabled(pio, sm, true);
+}
+
+%}

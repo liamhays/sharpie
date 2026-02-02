@@ -29,3 +29,7 @@ fp-info-cache
 # Exported BOM files
 *.xml
 *.csv
+
+# production files from the JLCPCB toolkit
+production/
+sharpie-gerbers/
