@@ -1,0 +1,15 @@
+[package]
+name = "sharpie-usb-display-host"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+glib = "0.21.5"
+gstreamer = "0.24.4"
+gstreamer-app = "0.24.4"
+gstreamer-video = "0.24.4"
+rusb = "0.9.4"
+zstd = "0.13.3"
+
+

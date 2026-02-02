@@ -1,0 +1,3 @@
+[submodule "sharpie-usb-display/usb-display-client/zstd"]
+	path = sharpie-usb-display/usb-display-client/zstd
+	url = https://github.com/facebook/zstd
