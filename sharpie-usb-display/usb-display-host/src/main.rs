@@ -1,6 +1,9 @@
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
+use std::time::SystemTime;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use rusb;
 use zstd;
@@ -10,6 +13,23 @@ use gstreamer_app as gst_app;
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use glib;
+use clap::Parser;
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Path to video to display
+    #[arg(short, long)]
+    video: PathBuf,
+    /// Run without sending data (useful for testing)
+    #[arg(short, long, default_value_t = false)]
+    no_usb: bool,
+    /// Framerate to run the video at. Sharpie can't go higher than 21.
+    #[arg(short, long)]
+    framerate: u32,
+}
+
+    
 
 const FRAMESIZE: usize = 240*320;
 // remember: USB endpoint names are relative to the host
@@ -102,27 +122,21 @@ impl RgbPixel {
 }
 
 fn main() -> Result<(), Error> {
-    /*let args: Vec<String> = env::args().collect();
-    let frame = fs::read(args[1].clone()).unwrap();
-    //println!("{}", frame.len());
-    let mut compressed = compress(&frame);
-    // append the length of the compressed data (0..0 just inserts)
-    compressed.splice(0..0, u32::to_le_bytes(compressed.len() as u32));
-    //fs::write("frame.lz4", &compressed).unwrap();
-
-    println!("{}", compressed.len());
-    // this works but it isn't right yet
-    
-    // we know we want endpoint 0x01
-    device.write_bulk(0x01, &compressed, Duration::from_millis(1000)).unwrap();
-     */
-
+    let args = Args::parse();
     gst::init()?;
 
-    // start by trying to open the device
-    let sharpie_usb = rusb::open_device_with_vid_pid(SHARPIE_VID, SHARPIE_PID)
-        .expect("Failed to open Sharpie USB device!");
+    let sharpie_usb = 
+        if !args.no_usb {
+            println!("opening USB device");
+            // start by trying to open the device
+            Some(rusb::open_device_with_vid_pid(SHARPIE_VID, SHARPIE_PID)
+                .expect("Failed to open Sharpie USB device!"))
+        } else {
+            None
+        };
     
+    
+    let input_video = fs::canonicalize(args.video)?;
     let main_loop = glib::MainLoop::new(None, false);
     // uridecodebin3 works, uridecodebin doesn't. we're using a string
     // launcher instead of manual pipeline assembly because
@@ -144,20 +158,29 @@ fn main() -> Result<(), Error> {
     // now, one might reasonably ask why it's that simple, given that
     // the Pipeline has to link clocks and other things to the Bin. I
     // don't know why, but I know it works.
-
+    
     // videoflip needs to come first
-    let launched_bin  = gst::parse::bin_from_description("uridecodebin3 uri=file:///home/liam/rei_ii.mp4 ! videoflip method=clockwise ! videoconvert ! videorate ! videoscale ! video/x-raw,width=240,height=320,framerate=18/1,format=RGBA ! appsink name=sink emit-signals=True",
+    let launched_bin = gst::parse::bin_from_description(
+        &format!("uridecodebin3 uri=file://{} ! videoflip method=clockwise ! videoconvert ! videorate ! videoscale ! video/x-raw,width=240,height=320,framerate=21/1,format=RGBA ! appsink name=sink emit-signals=True", input_video.to_str().unwrap()),
         // the bool here is to "automatically create ghost pads for
         // unlinked pads". it also seems to make the pipeline work?
         false
     )?;
 
+    // note that getting 20 fps above requires running the RP2350 at
+    // 200 MHz. see the sharpie-usb-display README.md for more info
+
     let pipeline = gst::Pipeline::new();
     pipeline.add(&launched_bin)?;
     // get access to the appsink so we can listen for its signals
     let appsink = pipeline.by_name("sink").unwrap();
+    
 
-
+    // adding an audio sink means reworking the entire pipeline and
+    // probably giving up bin_from_description(), because we have to
+    // tee the output of uridecodebin3, but we can't do that without
+    // setting up event handlers because uridecodebin3 doesn't know
+    // what its sources look like until it processes the file
     
 
     let (tx, rx) = mpsc::channel();
@@ -165,34 +188,47 @@ fn main() -> Result<(), Error> {
     // have to move the rx handle and the device
     thread::spawn(move || {
 
+            
         loop {
             // if the other thread dies (because the GStreamer main
             // loop exists), the receiver here loses its link and
             // throws an error.
             let received: Result<Vec<RgbPixel>, _> = rx.recv();
             if let Ok(frame_rgbpixel) = received {
-                //let start = SystemTime::now();
+                //let mut start = SystemTime::now();
                 
                 let dithered = floyd_steinberg_dither(&frame_rgbpixel);
-                let formatted = format_image(&dithered);
-                // default compression level (convert to slice)
-                let mut compressed = zstd::encode_all(&formatted[..], 6).unwrap();
-                /*let end = SystemTime::now();
+                /*let mut end = SystemTime::now();
                 
-                let duration = end.duration_since(start).unwrap();*/
+                let mut duration = end.duration_since(start).unwrap();
+                println!("dithering took {:?}", duration);*/
+
+                //start = SystemTime::now();
+                let formatted = format_image(&dithered);
+                /*end = SystemTime::now();
+                duration = end.duration_since(start).unwrap();
+                println!("formatting took {:?}", duration);*/
+                // default compression level (convert to slice)
+                let mut compressed = zstd::encode_all(&formatted[..], 7).unwrap();
+                /**/
 
                 // append the length of the compressed data to the
                 // start as a little-endian u32. zstd includes the
                 // decompressed length in its frame format but Sharpie
                 // needs to know how much to read on the fly.
                 compressed.splice(0..0, u32::to_le_bytes(compressed.len() as u32));
-                sharpie_usb.write_bulk(
-                    SHARPIE_EP_OUT,
-                    &compressed,
-                    // 1000 ms timeout is plenty
-                    Duration::from_millis(1000)).unwrap();
+                
+                // if we're in no_usb mode, we don't need to write to the device
+                if let Some(ref usb_device) = sharpie_usb {
+                    usb_device.write_bulk(
+                        SHARPIE_EP_OUT,
+                        &compressed,
+                        // 1000 ms timeout is plenty
+                        Duration::from_millis(1000)).unwrap();
+                }
                 println!("wrote frame {}, size = {}", count, compressed.len());
                 count += 1;
+                
             } else {
                 println!("main loop disconnected");
                 // leave the thread

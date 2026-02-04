@@ -134,10 +134,12 @@ void init_full_frame_pio() {
     printf("failed to add sharpie_horiz_data_program\n");
     error_handler();
   }
+
 }
 
 void reset_full_frame_pio() {
-  // init all three state machines
+  // init all three state machines. we would prefer to not do this
+  // every time but it takes a decent amount of consideration to make that work.
 
   // INTB on 0, GSP on 1, GCK on 2
   sharpie_vertical_pio_init(full_frame_pio, vertical_sm, vertical_offset, 0);
@@ -168,7 +170,7 @@ void reset_full_frame_pio() {
   pio_sm_exec(full_frame_pio, horiz_data_sm, pio_encode_out(pio_y, 32)); // out y, 32 (also clears OSR)
 
   // restart all state machine clocks
-  pio_clkdiv_restart_sm_mask(full_frame_pio, 0b111); // restart state machines
+  //pio_clkdiv_restart_sm_mask(full_frame_pio, 0b111); // restart state machines
   
 }
 
