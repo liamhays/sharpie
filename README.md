@@ -31,3 +31,10 @@ Sharpie [plays](https://www.youtube.com/watch?v=W0dpXhKVE6Y)
   video over USB to a Sharpie board
 - `vdp-simulator`: some proof-of-concept Rust code for how you could
   make a Sega-inspired tile-based video display processor in software
+
+## Licensing
+The hardware in `sharpie-hw` and `sharpie-hw-rev2` is licensed under
+the CERN-OHL-W. A copy of this license is in `sharpie-hw-rev2`.
+
+All software in this repository is licensed under the GPLv3, available
+in `LICENSE` in the root.
