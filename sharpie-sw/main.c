@@ -460,7 +460,7 @@ void main() {
   channel_config_set_chain_to(&image_c, image_pixels_zero_channel); // chain to zero channel to start zero channel when this finishes
   dma_channel_configure(image_pixels_channel, &image_c,
 			&full_frame_pio->txf[horiz_data_sm], // destination (TX FIFO of SM 2)
-		        pencils, // source 
+		        pencils, // source
 			19200, // transfer size = 320*240/4 = 19200
 			true); // start now
 

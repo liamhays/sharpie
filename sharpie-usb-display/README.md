@@ -11,7 +11,10 @@ both source files if you're curious about how much time various steps
 in the process require.
 
 The host needs to be run with `--release` because the dithering is
-slow (20-50 ms) in debug, but 4 ms in release.
+slow (20-50 ms) in debug, but 4 ms in release. It also can't play
+Matroska files, for some reason, probably because it uses a simple
+GStreamer host pipeline that expects audio and video to be present
+from early on.
 
 # Notes
 ## Compression and transfer

@@ -15,6 +15,11 @@ enum Commands {
 	input: PathBuf,
 	output: PathBuf,
     },
+    /// Format an image pixel-by-pixel to a 6bpp image. Useful for demos
+    IncorrectFormat {
+        input: PathBuf,
+        output: PathBuf,
+    },
     
     /// Unformat a raw Sharpie frame back to an image in a normal image format
     Unformat {
@@ -113,6 +118,19 @@ fn two_pixels_to_msb_lsb(p1: u8, p2: u8) -> (u8, u8) {
     (msb, lsb)
 }
 
+// this isn't very good code because it doesn't need to be
+fn incorrect_format_image(img: &RgbImage) -> Vec<u8> {
+    let mut formatted = Vec::<u8>::new();
+    for px in img.pixels() {
+        let components = px.channels();
+        let px_red_2bit = components[0] >> 6;
+	let px_green_2bit = components[1] >> 6;
+	let px_blue_2bit = components[2] >> 6;
+        let px_2bit = (px_blue_2bit << 4) | (px_green_2bit << 2) | px_red_2bit;
+        formatted.push(px_2bit);
+    }
+    formatted
+}
 
 fn format_image(img: &RgbImage) -> [u8; 240*320] {
     // formatted image buffer
@@ -145,6 +163,7 @@ fn format_image(img: &RgbImage) -> [u8; 240*320] {
 	    formatted[y as usize][formatted_index as usize] = msb;
 
 	    formatted[y as usize][(formatted_index + 120) as usize] = lsb;
+            
 	    
 	    formatted_index += 1;
 	}
@@ -454,7 +473,12 @@ fn main() {
 	    
 	    fs::write(output, formatted).expect("Failed to write output file");
 	},
-	
+	Commands::IncorrectFormat { input, output } => {
+            let img = load_240x320_image(input);
+            let formatted = incorrect_format_image(&img);
+            fs::write(output, formatted).expect("Failed to write output file");
+        },
+        
 	Commands::Unformat { input, output } => {
 	    let unformatted = unformat_image(input);
 	    unformatted.save(output).expect("Failed to write output file");

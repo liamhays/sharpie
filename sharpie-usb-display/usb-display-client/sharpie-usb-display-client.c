@@ -175,6 +175,13 @@ void reset_full_frame_pio() {
 }
 
 
+
+const uint32_t sys_clock_hz = 200000000;
+// we know exactly how the PIO works, so we can use this for an easy
+// final delay in the core1 loop
+const uint32_t one_gck_hl_us = (1./((float)sys_clock_hz/3100.)) * 4e6;
+
+
 int data_ready_doorbell;
 // the framebuffer ID with the newest data in it
 volatile int newest_compressed_buffer = 0;
@@ -219,8 +226,9 @@ void core1_entry() {
       // correct frame.
       while (dma_channel_is_busy(image_pixels_channel) ||
 	     dma_channel_is_busy(image_pixels_zero_channel));
-      // after the DMA ends, we have five GCK h/ls to wait for.
-      sleep_us(450);
+      // after the DMA ends, we have five GCK h/ls to wait for. add
+      // one more for good measure
+      sleep_us(one_gck_hl_us*6);
       reset_full_frame_pio();
       send_full_frame_image(framebuffer);
 
@@ -234,15 +242,14 @@ void core1_entry() {
 
 }
 
-// adding #pragma GCC optimize to lz4.c makes no difference to the speed.
 void main() {
   // there doesn't appear to be any issues at 150 MHz except for
   // excessive screen tearing sometimes. upping this to 200 MHz means
   // that the display transmission is faster, so tearing is less
   // visible (also, that much of a change should put the display
   // signals out of spec, but that doesn't seem to happen).
-  uint32_t sys_clock = 200000000;
-  set_sys_clock_hz(sys_clock, true);
+
+  set_sys_clock_hz(sys_clock_hz, true);
   // enable cycle counter
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   
@@ -296,7 +303,7 @@ void main() {
   uart_puts(uart1, "init\r\n");
 
   char str[100];
-  
+
   
   tusb_rhport_init_t dev_init = {
     .role = TUSB_ROLE_DEVICE,
@@ -333,7 +340,7 @@ void main() {
   uint32_t c = DWT->CYCCNT;
 
   sprintf(str, "finished, took %lu cycles = %f sec\r\n",
-		c, ((float)c/sys_clock));
+		c, ((float)c/sys_clock_hz));
   uart_puts(uart1, str);*/
   
   while (1) {
@@ -390,11 +397,11 @@ void main() {
 	
 	uint32_t after_decomp = DWT->CYCCNT;
 	/*sprintf(str, "finished, count = %lu, took %lu cycles = %f bytes/sec\r\n",
-		count, end, count/((float)end/sys_clock));
+		count, end, count/((float)end/sys_clock_hz));
 	uart_puts(uart1, str);
 	 */
 	/*sprintf(str, "after copy: %lu cycles (copy took %lu cycles = %f sec) = %f frames/sec\r\n",
-		after_decomp, after_decomp - end, ((float)after_decomp - end)/sys_clock, 1/((float)after_decomp/sys_clock));
+		after_decomp, after_decomp - end, ((float)after_decomp - end)/sys_clock_hz, 1/((float)after_decomp/sys_clock_hz));
 	uart_puts(uart1, str);*/
 	//uart_default_tx_wait_blocking();
 

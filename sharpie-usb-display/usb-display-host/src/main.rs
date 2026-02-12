@@ -1,9 +1,9 @@
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
-use std::time::SystemTime;
+//use std::time::SystemTime;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use rusb;
 use zstd;
@@ -39,7 +39,7 @@ const SHARPIE_PID: u16 = 0xa1b1;
 
 // for use with 8-bits-per-color data. it might seem excessive to use
 // an i32, but it makes sure that anything we want to do will never overflow
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 struct RgbPixel {
     red: i32,
     green: i32,
@@ -156,17 +156,13 @@ fn main() -> Result<(), Error> {
     // Pipeline.
     //
     // now, one might reasonably ask why it's that simple, given that
-    // the Pipeline has to link clocks and other things to the Bin. I
+    // the Pipeline has to link clocks and other things to the Element. I
     // don't know why, but I know it works.
     
     // videoflip needs to come first
     let launched_bin = gst::parse::bin_from_description(
-        &format!("uridecodebin3 uri=file://{} ! videoflip method=clockwise ! videoconvert ! videorate ! videoscale ! video/x-raw,width=240,height=320,framerate=21/1,format=RGBA ! appsink name=sink emit-signals=True", input_video.to_str().unwrap()),
-        // the bool here is to "automatically create ghost pads for
-        // unlinked pads". it also seems to make the pipeline work?
-        false
+        &format!("uridecodebin3 uri=file://{} ! videoflip method=clockwise ! videoconvert ! videorate ! videoscale ! video/x-raw,width=240,height=320,framerate=21/1,format=RGBA ! appsink name=sink emit-signals=True", input_video.to_str().unwrap())
     )?;
-
     // note that getting 20 fps above requires running the RP2350 at
     // 200 MHz. see the sharpie-usb-display README.md for more info
 
@@ -187,8 +183,17 @@ fn main() -> Result<(), Error> {
     let mut count = 0;
     // have to move the rx handle and the device
     thread::spawn(move || {
+        let mut first_frame_processed = false;
 
-            
+	/*
+	// these variables get set to actually useful values below,
+	// but the compiler doesn't like it if they haven't already
+	// been initialized (despite the fact that the loop logic
+	// below means that they will never be uninitialized at time
+	// of usage)
+        let mut last_frame: Vec<RgbPixel> = Vec::new();
+        let mut last_dithered_frame: Vec<RgbPixel> = Vec::new();*/
+	
         loop {
             // if the other thread dies (because the GStreamer main
             // loop exists), the receiver here loses its link and
@@ -196,7 +201,30 @@ fn main() -> Result<(), Error> {
             let received: Result<Vec<RgbPixel>, _> = rx.recv();
             if let Ok(frame_rgbpixel) = received {
                 //let mut start = SystemTime::now();
-                
+
+		// this was a cool experiment(tm) to reduce flicker
+		// that doesn't really work, under the assumption that
+		// dithering caused most pixels between similar frames
+		// to change---it just causes color banding and
+		// doesn't actually dither enough. I think that's
+		// because the diffuse-error-into-this-frame approach
+		// that dithering uses doesn't quite work with frame
+		// deltas.
+                /*let dithered =
+                    if !first_frame_processed {
+                        // if we haven't processed any frames yet, all
+                        // we have to do is dither this frame
+                        first_frame_processed = true;
+                        floyd_steinberg_dither(&frame_rgbpixel)
+                    } else {
+                        // if we have a previous frame, do a
+                        // differential dither
+                        floyd_steinberg_difference_dither(
+                            &last_dithered_frame,
+                            &last_frame,
+                            &frame_rgbpixel)
+                    };
+		*/
                 let dithered = floyd_steinberg_dither(&frame_rgbpixel);
                 /*let mut end = SystemTime::now();
                 
@@ -208,9 +236,12 @@ fn main() -> Result<(), Error> {
                 /*end = SystemTime::now();
                 duration = end.duration_since(start).unwrap();
                 println!("formatting took {:?}", duration);*/
-                // default compression level (convert to slice)
-                let mut compressed = zstd::encode_all(&formatted[..], 7).unwrap();
-                /**/
+
+		// we reach diminishing returns (~50-100 bytes saved
+		// per one compression level increase) after level 6
+		// fairly consistently. zstd benchmark puts level 6 at
+		// ~70MB/s, which is plenty fast.
+                let mut compressed = zstd::encode_all(&formatted[..], 6).unwrap();
 
                 // append the length of the compressed data to the
                 // start as a little-endian u32. zstd includes the
@@ -227,8 +258,11 @@ fn main() -> Result<(), Error> {
                         Duration::from_millis(1000)).unwrap();
                 }
                 println!("wrote frame {}, size = {}", count, compressed.len());
+
+                //last_dithered_frame = dithered;
+                //last_frame = frame_rgbpixel;
+
                 count += 1;
-                
             } else {
                 println!("main loop disconnected");
                 // leave the thread
@@ -313,8 +347,6 @@ fn main() -> Result<(), Error> {
 
 // this is an adaptation of the dithering code in sharpie-formatter to
 // work with straight ABGR u32s and assume that images are 240x320.
-
-
 fn rgb8_quant_error(pixel: RgbPixel, difference: [i32; 3], quant_num: i32) -> RgbPixel {
     // we have to clamp overflows to 255 with a saturating signed add,
     // otherwise channels that saturate will underflow, causing (for
@@ -330,11 +362,83 @@ fn rgb8_quant_error(pixel: RgbPixel, difference: [i32; 3], quant_num: i32) -> Rg
         green: pixel_as_u8[1].saturating_add_signed((difference[1] * quant_num/16) as i8) as i32,
         blue: pixel_as_u8[2].saturating_add_signed((difference[2] * quant_num/16) as i8) as i32,
     }
-    
-
-    
 }
 
+/*
+/// Dither an image, but only on the pixels that have changed relative
+/// to `lastframe`. `lastframe` should be a dithered frame.
+fn floyd_steinberg_difference_dither(
+    last_dithered_frame: &[RgbPixel],
+    last_frame: &[RgbPixel],
+    this_frame: &[RgbPixel]) -> Vec<RgbPixel> {
+    
+    let mut dithered_frame: Vec<RgbPixel> = last_dithered_frame.into();
+    
+    for y in 0..320 {
+	for x in 0..240 {
+	    // for each pixel, get its color channels, then convert
+	    // it to 2bpc and calculate the quantization error.
+	    let pixel = this_frame[y*240 + x];
+            if pixel != last_frame[y*240 + x] {
+                // if the non-dithered pixels at the same position
+                // between this frame and the last frame are
+                // different, quantize the new one and distribute its
+                // error
+                
+	        let pixel_color_reduced = pixel.to_2bpc_color_full_range();
+	        // make an 8bpc version of the new pixel to put back in
+	        // the original image, where we keep the initial state and
+	        // diffused error (which gets transformed into a dithered
+	        // image in 8bpc format)
+	        
+	        // RgbPixel components are i32, so there's no risk of
+	        // overflow on numbers that are 255 at most
+	        let quant_error: [i32; 3] = [
+                    pixel.red - pixel_color_reduced.red,
+                    pixel.green - pixel_color_reduced.green,
+                    pixel.blue - pixel_color_reduced.blue
+                ];
+                
+	        // put the quantized pixel back into the original image
+	        dithered_frame[y*240 + x] = pixel_color_reduced;
+                
+	        // and then diffuse the error over adjacent pixels
+	        
+	        // if we're in a position that would write to pixels outside the image,
+	        // just don't write them.
+	        if x + 1 < 240 {
+		    dithered_frame[y * 240 + (x + 1)] = 
+			rgb8_quant_error(this_frame[y * 240 + (x + 1)],
+					 quant_error, 7);
+	        }
+                
+	        if x != 0 && y + 1 < 320 {
+                    dithered_frame[(y + 1)*240 + (x - 1)] = 
+			rgb8_quant_error(this_frame[(y + 1) * 240 + (x - 1)],
+					 quant_error, 3);
+	        }
+                
+	        if y + 1 < 320 {
+                    dithered_frame[(y + 1)*240 + x] = 
+			rgb8_quant_error(this_frame[(y + 1) * 240 + x],
+					 quant_error, 5);
+	        }
+                
+	        if x + 1 < 240 && y + 1 < 320 {
+                    dithered_frame[(y + 1)*240 + (x + 1)] = 
+			rgb8_quant_error(this_frame[(y + 1) * 240 + (x + 1)],
+					 quant_error, 1);
+	        }
+            }
+        }
+
+    }
+
+    dithered_frame
+
+}
+
+*/
 // this function would appear to take the bulk of the time during a
 // frame. the dithering itself also looks slightly different from the
 // manual (ffmpeg->shell scripts/sharpie-formatter) frames, but that
