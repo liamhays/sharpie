@@ -13,6 +13,8 @@ Sharpie [plays](https://www.youtube.com/watch?v=W0dpXhKVE6Y)
 
 ## Repo contents
 - `sharpie-cad`: a little bit of FreeCAD for a display/board carrier
+- `sharpie-documents`: the LS021B7DD02 datasheet link on DigiKey is
+  broken, this is the latest version from when it used to work
 - `sharpie-formatter`: an image formatter written in Rust that can
   dither and format images to binary data, ready to be written
   directly to the display
