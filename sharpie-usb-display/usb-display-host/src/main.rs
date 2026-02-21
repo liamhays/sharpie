@@ -160,7 +160,7 @@ fn main() -> Result<(), Error> {
     // don't know why, but I know it works.
     
     // videoflip needs to come first
-    let launched_bin = gst::parse::bin_from_description(
+    let launched_bin = gst::parse::launch(
         &format!("uridecodebin3 uri=file://{} ! videoflip method=clockwise ! videoconvert ! videorate ! videoscale ! video/x-raw,width=240,height=320,framerate=21/1,format=RGBA ! appsink name=sink emit-signals=True", input_video.to_str().unwrap())
     )?;
     // note that getting 20 fps above requires running the RP2350 at
